@@ -1,40 +1,17 @@
 import { createNoise2D, createNoise3D } from "simplex-noise";
+import { BLOCK_COUNT, BLOCKS, BLOCK_NAMES, BlockType } from "./blocks.js";
+import { generateVillage } from "./Structures.js";
+
+export { BLOCK_COUNT, BLOCKS, BLOCK_NAMES, BlockType };
 
 export const CHUNK_SIZE = 16;
 export const WORLD_HEIGHT = 48;
 export const CHUNK_VOLUME = CHUNK_SIZE ** 3;
-
-export const BlockType = Object.freeze({
-  AIR: 0,
-  GRASS: 1,
-  DIRT: 2,
-  STONE: 3,
-  WOOD: 4,
-  LEAVES: 5,
-  SAND: 6,
-  SNOW: 7,
-  COAL_ORE: 8,
-  IRON_ORE: 9,
-  PLANKS: 10,
-  CRAFTING_TABLE: 11,
-});
-
-export const BLOCK_NAMES = Object.freeze({
-  [BlockType.GRASS]: "Grass",
-  [BlockType.DIRT]: "Dirt",
-  [BlockType.STONE]: "Stone",
-  [BlockType.WOOD]: "Wood",
-  [BlockType.LEAVES]: "Leaves",
-  [BlockType.SAND]: "Sand",
-  [BlockType.SNOW]: "Snow",
-  [BlockType.COAL_ORE]: "Coal Ore",
-  [BlockType.IRON_ORE]: "Iron Ore",
-  [BlockType.PLANKS]: "Planks",
-  [BlockType.CRAFTING_TABLE]: "Crafting Table",
-});
+export const SEA_LEVEL = 14;
+export const LAVA_LEVEL = 4;
 
 const CHUNK_AREA = CHUNK_SIZE * CHUNK_SIZE;
-const TERRAIN_FREQUENCY = 0.035;
+const GRAVEL_VEIN_MARGIN = 10;
 
 function seededRandom(seed) {
   let state = seed >>> 0;
@@ -64,21 +41,71 @@ function blockIndex(x, y, z) {
   return x * CHUNK_AREA + y * CHUNK_SIZE + z;
 }
 
+function smoothstep(edge0, edge1, value) {
+  const t = Math.max(0, Math.min(1, (value - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
 export class WorldGenerator {
   constructor(seed = 20240601) {
+    this.seed = seed;
     const random = seededRandom(seed);
-    this.noise2D = createNoise2D(random);
-    this.noise3D = createNoise3D(random);
+    this.temperature = createNoise2D(random);
+    this.continentalness = createNoise2D(random);
+    this.erosion = createNoise2D(random);
+    this.peaks = createNoise2D(random);
+    this.rivers = createNoise2D(random);
+    this.caves = createNoise3D(random);
+    this.oilPockets = createNoise3D(random);
   }
 
   getTemperatureAt(worldX, worldZ) {
-    return this.noise2D(worldX * 0.012 + 73, worldZ * 0.012 - 41);
+    return this.temperature(worldX * 0.012 + 73, worldZ * 0.012 - 41);
+  }
+
+  getContinentalnessAt(worldX, worldZ) {
+    return this.continentalness(worldX * 0.006, worldZ * 0.006);
+  }
+
+  getErosionAt(worldX, worldZ) {
+    return this.erosion(worldX * 0.025 + 31, worldZ * 0.025 - 17);
+  }
+
+  getPeaksAt(worldX, worldZ) {
+    return this.peaks(worldX * 0.018 - 47, worldZ * 0.018 + 29);
+  }
+
+  getRiverStrengthAt(worldX, worldZ) {
+    const distance = Math.abs(this.rivers(worldX * 0.018 + 101, worldZ * 0.018 - 83));
+    return 1 - smoothstep(0.018, 0.075, distance);
+  }
+
+  #getBaseHeightAt(worldX, worldZ) {
+    const continent = this.getContinentalnessAt(worldX, worldZ);
+    const erosion = this.getErosionAt(worldX, worldZ);
+    const peaks = this.getPeaksAt(worldX, worldZ);
+    const land = smoothstep(-0.35, 0.3, continent);
+    const ruggedness = 1 - smoothstep(-0.2, 0.65, erosion);
+    const mountainStrength = Math.max(0, (peaks - 0.1) / 0.9);
+    const base = SEA_LEVEL - 4 + continent * 10 + land * 2;
+    const hills = erosion * (1.5 + ruggedness * 3);
+    const mountains = land * ruggedness * mountainStrength * mountainStrength * 28;
+    return base + hills + mountains;
   }
 
   getHeightAt(worldX, worldZ) {
-    const broad = this.noise2D(worldX * TERRAIN_FREQUENCY, worldZ * TERRAIN_FREQUENCY);
-    const detail = this.noise2D(worldX * 0.11, worldZ * 0.11) * 0.18;
-    return Math.max(5, Math.min(WORLD_HEIGHT - 8, Math.floor(17 + broad * 9 + detail * 5)));
+    const riverCut = this.getRiverStrengthAt(worldX, worldZ) * 4.5;
+    const height = Math.floor(this.#getBaseHeightAt(worldX, worldZ) - riverCut);
+    return Math.max(3, Math.min(WORLD_HEIGHT - 8, height));
+  }
+
+  getWaterLevelAt(worldX, worldZ) {
+    const baseHeight = this.#getBaseHeightAt(worldX, worldZ);
+    const riverStrength = this.getRiverStrengthAt(worldX, worldZ);
+    if (riverStrength > 0.45 && baseHeight > SEA_LEVEL) {
+      return Math.min(WORLD_HEIGHT - 8, Math.floor(baseHeight - 1));
+    }
+    return this.getHeightAt(worldX, worldZ) < SEA_LEVEL ? SEA_LEVEL : -1;
   }
 
   getBiomeAt(worldX, worldZ) {
@@ -91,13 +118,16 @@ export class WorldGenerator {
   generateChunk(chunkX = 0, chunkY = 0, chunkZ = 0) {
     const blocks = new Uint8Array(CHUNK_VOLUME);
     const worldYStart = chunkY * CHUNK_SIZE;
+    const heightMap = new Array(CHUNK_SIZE * CHUNK_SIZE);
 
     for (let x = 0; x < CHUNK_SIZE; x += 1) {
       const worldX = chunkX * CHUNK_SIZE + x;
       for (let z = 0; z < CHUNK_SIZE; z += 1) {
         const worldZ = chunkZ * CHUNK_SIZE + z;
         const height = this.getHeightAt(worldX, worldZ);
+        const waterLevel = this.getWaterLevelAt(worldX, worldZ);
         const biome = this.getBiomeAt(worldX, worldZ);
+        heightMap[x * CHUNK_SIZE + z] = { height, surface, waterLevel };
         const surface =
           biome === "tundra"
             ? BlockType.SNOW
@@ -106,7 +136,10 @@ export class WorldGenerator {
               : BlockType.GRASS;
         for (let localY = 0; localY < CHUNK_SIZE; localY += 1) {
           const worldY = worldYStart + localY;
-          if (worldY > height) continue;
+          if (worldY > height) {
+            if (worldY <= waterLevel) blocks[blockIndex(x, localY, z)] = BlockType.WATER;
+            continue;
+          }
 
           let type;
           if (worldY === height) {
@@ -116,16 +149,35 @@ export class WorldGenerator {
           } else if (worldY >= height - 3) {
             type = BlockType.DIRT;
           } else {
-            const cave = this.noise3D(worldX * 0.075, worldY * 0.075, worldZ * 0.075);
-            if (worldY > 3 && worldY < height - 3 && cave > 0.57) continue;
-
-            const oreRoll = hash3D(worldX, worldY, worldZ) / 4294967296;
-            if (worldY < 34 && oreRoll < 0.007) {
-              type = BlockType.COAL_ORE;
-            } else if (worldY < 24 && oreRoll < 0.0105) {
-              type = BlockType.IRON_ORE;
+            const cave = this.caves(worldX * 0.075, worldY * 0.075, worldZ * 0.075);
+            if (worldY > 2 && worldY < height - 3 && cave > 0.56) {
+              if (worldY <= LAVA_LEVEL) {
+                type = BlockType.LAVA;
+              } else if (
+                worldY < 20 &&
+                this.oilPockets(worldX * 0.065, worldY * 0.065, worldZ * 0.065) > 0.58
+              ) {
+                type = BlockType.OIL;
+              } else {
+                continue;
+              }
             } else {
-              type = BlockType.STONE;
+              const oreRoll = hash3D(worldX, worldY, worldZ) / 4294967296;
+              if (worldY < 34 && oreRoll < 0.008) {
+                type = BlockType.COAL_ORE;
+              } else if (worldY < 26 && oreRoll < 0.012) {
+                type = BlockType.IRON_ORE;
+              } else if (worldY < 22 && oreRoll < 0.014) {
+                type = BlockType.GOLD_ORE;
+              } else if (worldY < 30 && oreRoll < 0.016) {
+                type = BlockType.LAPIS_ORE;
+              } else if (worldY < 15 && oreRoll < 0.019) {
+                type = BlockType.REDSTONE_ORE;
+              } else if (worldY < 15 && oreRoll < 0.021) {
+                type = BlockType.DIAMOND_ORE;
+              } else {
+                type = BlockType.STONE;
+              }
             }
           }
           blocks[blockIndex(x, localY, z)] = type;
@@ -133,8 +185,107 @@ export class WorldGenerator {
       }
     }
 
+    this.#placeGravelVeins(blocks, chunkX, chunkY, chunkZ);
     this.#placeTrees(blocks, chunkX, chunkY, chunkZ);
+    generateVillage(chunkX, chunkZ, blocks, heightMap, {
+      chunkY,
+      chunkSize: CHUNK_SIZE,
+      worldHeight: WORLD_HEIGHT,
+      seed: this.seed,
+      getBlockIndex: blockIndex,
+    });
     return blocks;
+  }
+
+  #placeGravelVeins(blocks, chunkX, chunkY, chunkZ) {
+    const worldXStart = chunkX * CHUNK_SIZE;
+    const worldYStart = chunkY * CHUNK_SIZE;
+    const worldZStart = chunkZ * CHUNK_SIZE;
+    const worldXEnd = worldXStart + CHUNK_SIZE;
+    const worldYEnd = worldYStart + CHUNK_SIZE;
+    const worldZEnd = worldZStart + CHUNK_SIZE;
+    const veins = [];
+
+    for (
+      let startX = worldXStart - GRAVEL_VEIN_MARGIN;
+      startX < worldXEnd + GRAVEL_VEIN_MARGIN;
+      startX += 1
+    ) {
+      for (
+        let startZ = worldZStart - GRAVEL_VEIN_MARGIN;
+        startZ < worldZEnd + GRAVEL_VEIN_MARGIN;
+        startZ += 1
+      ) {
+        const height = this.getHeightAt(startX, startZ);
+        const riverStrength = this.getRiverStrengthAt(startX, startZ);
+        const waterLevel = this.getWaterLevelAt(startX, startZ);
+        const nearWater =
+          waterLevel > height ||
+          riverStrength > 0.4 ||
+          this.getHeightAt(startX + 1, startZ) < SEA_LEVEL ||
+          this.getHeightAt(startX - 1, startZ) < SEA_LEVEL ||
+          this.getHeightAt(startX, startZ + 1) < SEA_LEVEL ||
+          this.getHeightAt(startX, startZ - 1) < SEA_LEVEL;
+        const chance = nearWater ? 0.012 : 0.0015;
+        if (hash2D(startX, startZ, 0x6a7e1) >= chance) continue;
+
+        const random = seededRandom(hash3D(startX, 37, startZ));
+        const vein = [];
+        const occupied = new Set();
+        const firstY = height - 1 - Math.floor(random() * 3);
+        vein.push({ x: startX, y: firstY, z: startZ });
+        occupied.add(`${startX},${firstY},${startZ}`);
+        const veinSize = 4 + Math.floor(random() * 7);
+        let attempts = 0;
+
+        while (vein.length < veinSize && attempts < veinSize * 16) {
+          attempts += 1;
+          const anchor = vein[Math.floor(random() * vein.length)];
+          const direction = Math.floor(random() * 4);
+          const x = anchor.x + (direction === 0 ? 1 : direction === 1 ? -1 : 0);
+          const z = anchor.z + (direction === 2 ? 1 : direction === 3 ? -1 : 0);
+          const surfaceY = this.getHeightAt(x, z);
+          const anchorDepth = this.getHeightAt(anchor.x, anchor.z) - anchor.y;
+          const depth = Math.max(
+            1,
+            Math.min(3, anchorDepth + Math.floor(random() * 3) - 1),
+          );
+          const y = surfaceY - depth;
+          const key = `${x},${y},${z}`;
+          if (occupied.has(key)) continue;
+          occupied.add(key);
+          vein.push({ x, y, z });
+        }
+        veins.push(vein);
+      }
+    }
+
+    for (const vein of veins) {
+      for (const { x, y, z } of vein) {
+        if (
+          x < worldXStart ||
+          x >= worldXEnd ||
+          y < worldYStart ||
+          y >= worldYEnd ||
+          z < worldZStart ||
+          z >= worldZEnd
+        ) {
+          continue;
+        }
+        const localX = x - worldXStart;
+        const localY = y - worldYStart;
+        const localZ = z - worldZStart;
+        const index = blockIndex(localX, localY, localZ);
+        const existing = blocks[index];
+        if (
+          existing === BlockType.DIRT ||
+          existing === BlockType.SAND ||
+          existing === BlockType.STONE
+        ) {
+          blocks[index] = BlockType.GRAVEL;
+        }
+      }
+    }
   }
 
   #placeTrees(blocks, chunkX, chunkY, chunkZ) {
@@ -142,7 +293,13 @@ export class WorldGenerator {
     const yEnd = yStart + CHUNK_SIZE;
     for (let worldX = chunkX * CHUNK_SIZE - 2; worldX < (chunkX + 1) * CHUNK_SIZE + 2; worldX += 1) {
       for (let worldZ = chunkZ * CHUNK_SIZE - 2; worldZ < (chunkZ + 1) * CHUNK_SIZE + 2; worldZ += 1) {
-        if (hash2D(worldX, worldZ) > 0.045 || this.getBiomeAt(worldX, worldZ) !== "forest") continue;
+        if (
+          hash2D(worldX, worldZ) > 0.045 ||
+          this.getBiomeAt(worldX, worldZ) !== "forest" ||
+          this.getWaterLevelAt(worldX, worldZ) > this.getHeightAt(worldX, worldZ)
+        ) {
+          continue;
+        }
 
         const height = this.getHeightAt(worldX, worldZ);
         const localX = worldX - chunkX * CHUNK_SIZE;

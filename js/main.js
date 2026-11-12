@@ -11,6 +11,7 @@ import {
 import { EntityManager } from "./entities/EntityManager.js";
 import { InventoryManager } from "./inventory/InventoryManager.js";
 import { PlayerController } from "./player/PlayerController.js";
+import { MainMenu } from "./ui/MainMenu.js";
 import { Sky } from "./world/Sky.js";
 import { BlockType } from "./world/WorldGenerator.js";
 import { World } from "./world/World.js";
@@ -31,10 +32,12 @@ const ambientLight = new AmbientLight(0xffffff, 1);
 scene.add(ambientLight);
 
 const world = new World(scene, new WorldGenerator());
-const player = new PlayerController(camera, renderer.domElement, world);
-const inventory = new InventoryManager();
+const inventory = new InventoryManager(world.textures);
+const player = new PlayerController(camera, renderer.domElement, world, world.getSpawnPoint(), inventory);
 const entities = new EntityManager(scene, world, inventory);
+player.magicSystem.setEntities(entities.entities);
 const sky = new Sky(scene, ambientLight);
+const mainMenu = new MainMenu(player.controls);
 const clock = new Clock();
 const raycaster = new Raycaster();
 const screenCenter = new Vector2(0, 0);
@@ -84,11 +87,21 @@ function interact(button) {
   const hit = raycaster.intersectObjects(targets, false)[0];
   if (!hit) return;
 
-  const animal = hit.object.userData.animal;
-  if (animal) {
-    if (button === 0) entities.damage(animal);
+  const entity = hit.object.userData.entity ?? hit.object.userData.animal;
+  if (entity) {
+    if (button === 2) {
+      entities.interact(entity, button, player);
+      return;
+    }
+    if (button === 0) {
+      player.cancelMining();
+      entities.damage(entity, player.position, player.getAttackDamage());
+      player.applyWeaponHit(entity);
+    }
     return;
   }
+
+  if (button === 0) return;
 
   const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
   const hitBlock = {
@@ -96,12 +109,6 @@ function interact(button) {
     y: Math.floor(hit.point.y - normal.y * 0.01),
     z: Math.floor(hit.point.z - normal.z * 0.01),
   };
-  if (button === 0) {
-    const dropped = world.breakBlock(hitBlock.x, hitBlock.y, hitBlock.z);
-    if (dropped !== BlockType.AIR) inventory.addItem(dropped, 1);
-    return;
-  }
-
   const block = inventory.getSelectedBlock();
   if (block === null) return;
   const placeAt = {
@@ -115,7 +122,12 @@ function interact(button) {
   ) {
     return;
   }
-  if (world.setBlockAt(placeAt.x, placeAt.y, placeAt.z, block)) inventory.removeItem(block, 1);
+  if (
+    world.setBlockAt(placeAt.x, placeAt.y, placeAt.z, block) &&
+    window.gameSettings?.gameMode !== "creative"
+  ) {
+    inventory.removeItem(block, 1);
+  }
 }
 
 canvas.addEventListener("mousedown", (event) => {
@@ -126,22 +138,24 @@ canvas.addEventListener("mousedown", (event) => {
 canvas.addEventListener("contextmenu", (event) => event.preventDefault());
 
 player.controls.addEventListener("lock", () => {
-  instructions.textContent = "WASD move · Space jump · Left click mine / attack · Right click place · E inventory";
+  instructions.textContent = "WASD move · Space jump · Left click mine / attack · Right click place · Q drop · E inventory";
 });
 player.controls.addEventListener("unlock", () => {
-  instructions.textContent = "Click to play · WASD move · Space jump · E inventory";
+  instructions.textContent = "Click to play · WASD move · Space jump · Q drop item · E inventory";
 });
 
 function animate() {
   requestAnimationFrame(animate);
   const delta = clock.getDelta();
   player.update(delta);
-  entities.update(delta, player.position);
   sky.update(delta, player.position);
+  const isDay = Math.sin(sky.time * Math.PI * 2 - Math.PI / 2) > 0;
+  entities.update(delta, player, isDay);
   renderer.render(scene, camera);
 }
 
 window.addEventListener("pagehide", () => {
+  mainMenu.dispose();
   player.dispose();
   inventory.dispose();
   entities.dispose();

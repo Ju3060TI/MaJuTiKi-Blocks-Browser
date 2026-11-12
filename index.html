@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="de">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Voxel World</title>
+    <title>MaJuTiKi Blocks</title>
     <link rel="stylesheet" href="./css/style.css" />
     <script type="importmap">
       {
@@ -18,28 +18,150 @@
   </head>
   <body>
     <canvas id="game"></canvas>
+    <div id="main-menu" role="dialog" aria-modal="true" aria-labelledby="main-menu-title">
+      <div class="menu-content">
+        <p class="menu-eyebrow">WILLKOMMEN IN DER WELT</p>
+        <h1 id="main-menu-title">MaJuTiKi <span>Blocks</span></h1>
+        <p class="menu-subtitle">Baue. Entdecke. Überlebe.</p>
+        <div class="menu-buttons">
+          <button id="play-button" class="menu-button primary" type="button">Spielen</button>
+          <button id="settings-button" class="menu-button" type="button">Einstellungen</button>
+        </div>
+        <div id="settings-menu" class="settings-panel" aria-label="Einstellungen" hidden>
+          <h2>Einstellungen</h2>
+          <label class="render-distance-control" for="game-mode">
+            <span>Spielmodus</span>
+          </label>
+          <select id="game-mode" class="menu-button">
+            <option value="creative">Creative</option>
+            <option value="vanilla" selected>Vanilla Survival</option>
+            <option value="rpg">RPG Mode</option>
+          </select>
+          <div id="rpg-class-control" hidden>
+            <label class="render-distance-control" for="rpg-class">
+              <span>Klasse</span>
+            </label>
+            <select id="rpg-class" class="menu-button">
+              <option value="survivor">Survivor</option>
+              <option value="villager">Villager</option>
+              <option value="monster">Monster</option>
+            </select>
+          </div>
+          <label class="render-distance-control" for="render-distance">
+            <span>Sichtweite</span>
+            <output id="render-distance-value" for="render-distance">4 Chunks</output>
+          </label>
+          <input id="render-distance" class="render-distance-slider" type="range" min="2" max="10" step="1" value="4" />
+          <label class="render-distance-control" for="lod-distance">
+            <span>LOD-Distanz</span>
+            <output id="lod-distance-value" for="lod-distance">2 Chunks</output>
+          </label>
+          <input id="lod-distance" class="render-distance-slider" type="range" min="1" max="5" step="1" value="2" />
+          <label class="render-distance-control" for="sim-distance">
+            <span>Simulations-Distanz</span>
+            <output id="sim-distance-value" for="sim-distance">4 Chunks</output>
+          </label>
+          <input id="sim-distance" class="render-distance-slider" type="range" min="1" max="10" step="1" value="4" />
+          <button id="settings-back" class="menu-button" type="button">Zurück</button>
+        </div>
+        <p id="menu-message" class="menu-message" aria-live="polite"></p>
+        <p class="menu-footer">Eine prozedurale Welt wartet auf dich</p>
+      </div>
+    </div>
+    <section id="char-creation-screen" class="character-creation" role="dialog" aria-modal="true"
+      aria-labelledby="character-creation-title" hidden>
+      <div class="character-creation-panel">
+        <p class="character-eyebrow">DEIN SCHICKSAL BEGINNT</p>
+        <h1 id="character-creation-title">Erschaffe deinen Helden</h1>
+        <p class="character-intro">Wähle deine Herkunft und deinen Weg durch die Welt.</p>
+        <div class="character-choices">
+          <label class="character-choice" for="player-faction">
+            <span class="choice-number">I · HERKUNFT</span>
+            <strong>Fraktion</strong>
+            <select id="player-faction">
+              <option value="neutral">Neutral (Alleingänger)</option>
+              <option value="villager">Villager (Dorfbewohner)</option>
+              <option value="elves">Elves (Elfen)</option>
+              <option value="dwarves">Dwarves (Zwerge)</option>
+              <option value="monsters">Monsters (Herobrines Armee)</option>
+            </select>
+            <small>Bestimmt, wo du beginnst und wem du begegnest.</small>
+          </label>
+          <label class="character-choice" for="player-race">
+            <span class="choice-number">II · VOLK</span>
+            <strong>Rasse</strong>
+            <select id="player-race">
+              <option value="human">Human</option>
+              <option value="elf">Elf</option>
+              <option value="dwarf">Dwarf</option>
+              <option value="zombie">Zombie</option>
+              <option value="skeleton">Skeleton</option>
+            </select>
+            <small>Deine Rasse prägt Gesundheit, Tempo und Mana.</small>
+          </label>
+          <label class="character-choice" for="player-class">
+            <span class="choice-number">III · BERUFUNG</span>
+            <strong>Klasse</strong>
+            <select id="player-class">
+              <option value="warrior">Warrior (Krieger)</option>
+              <option value="mage">Mage (Magier)</option>
+              <option value="archer">Archer (Bogenschütze)</option>
+              <option value="rogue">Rogue (Schurke)</option>
+            </select>
+            <small>Deine Klasse bestimmt deine Startausrüstung.</small>
+          </label>
+        </div>
+        <p id="character-message" class="character-message" aria-live="polite"></p>
+        <div class="character-actions">
+          <button id="character-back" class="menu-button" type="button">Zurück</button>
+          <button id="enter-world-button" class="menu-button primary" type="button">Welt betreten</button>
+        </div>
+      </div>
+    </section>
+    <div id="loading-screen" role="status" aria-live="polite" hidden>
+      <span class="loading-spinner" aria-hidden="true"></span>
+      <p>Generiere Welt...</p>
+    </div>
     <div id="crosshair" aria-hidden="true"></div>
     <div id="status">Infinite Voxel World <span>Mine blocks to collect them</span></div>
+    <div id="health" role="progressbar" aria-label="Player health" aria-valuemin="0" aria-valuemax="20" aria-valuenow="20">
+      <span id="health-label">Health 20 / 20</span>
+      <div id="health-track"><div id="health-fill"></div></div>
+    </div>
     <div id="hotbar" aria-label="Hotbar"></div>
-    <div id="instructions">Click to play · WASD move · Space jump · E inventory</div>
+    <div id="instructions">Click to play · WASD move · Space jump · Q drop item · E inventory</div>
     <section id="inventory" class="inventory-overlay" aria-label="Inventory" hidden>
       <div class="inventory-panel">
         <header>
           <div>
-            <h1>Inventory &amp; Crafting</h1>
-            <p>Collect blocks, then craft planks and a crafting table.</p>
+            <h1>Crafting</h1>
+            <p>Drag stacks into the grid, or click a stack and then a slot. Click the result to craft.</p>
           </div>
           <button id="inventory-close" type="button" aria-label="Close inventory">×</button>
         </header>
-        <div class="inventory-content">
-          <section>
-            <h2>Items</h2>
-            <div id="inventory-items" class="inventory-items"></div>
-          </section>
-          <section>
+        <div class="crafting-layout">
+          <section class="crafting-section" aria-label="Crafting grid">
             <h2>Crafting</h2>
-            <div id="recipes" class="recipes"></div>
-            <p id="inventory-message" aria-live="polite"></p>
+            <div class="crafting-workbench">
+              <div id="crafting-grid" class="crafting-grid" role="grid" aria-label="3 by 3 crafting grid">
+                <button class="item-slot crafting-slot" type="button" data-craft-slot="0" role="gridcell" aria-label="Crafting slot 1"></button>
+                <button class="item-slot crafting-slot" type="button" data-craft-slot="1" role="gridcell" aria-label="Crafting slot 2"></button>
+                <button class="item-slot crafting-slot" type="button" data-craft-slot="2" role="gridcell" aria-label="Crafting slot 3"></button>
+                <button class="item-slot crafting-slot" type="button" data-craft-slot="3" role="gridcell" aria-label="Crafting slot 4"></button>
+                <button class="item-slot crafting-slot" type="button" data-craft-slot="4" role="gridcell" aria-label="Crafting slot 5"></button>
+                <button class="item-slot crafting-slot" type="button" data-craft-slot="5" role="gridcell" aria-label="Crafting slot 6"></button>
+                <button class="item-slot crafting-slot" type="button" data-craft-slot="6" role="gridcell" aria-label="Crafting slot 7"></button>
+                <button class="item-slot crafting-slot" type="button" data-craft-slot="7" role="gridcell" aria-label="Crafting slot 8"></button>
+                <button class="item-slot crafting-slot" type="button" data-craft-slot="8" role="gridcell" aria-label="Crafting slot 9"></button>
+              </div>
+              <span class="crafting-arrow" aria-hidden="true">➜</span>
+              <button id="craft-output" class="item-slot output-slot" type="button" aria-label="Crafting output" disabled></button>
+            </div>
+          </section>
+          <section class="inventory-section" aria-label="Player inventory">
+            <h2>Inventory</h2>
+            <div id="inventory-items" class="player-inventory" role="grid" aria-label="Player inventory, 3 rows by 9 columns"></div>
+            <div id="inventory-message" aria-live="polite"></div>
           </section>
         </div>
       </div>

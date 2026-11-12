@@ -1,4 +1,5 @@
 import { CanvasTexture, NearestFilter, SRGBColorSpace } from "three";
+import { BLOCK_COUNT, BLOCKS } from "./blocks.js";
 
 const TEXTURE_SIZE = 16;
 
@@ -16,91 +17,296 @@ function createTexture(draw) {
   return texture;
 }
 
-function paintNoise(context, baseColor, variations, seed = 1) {
-  let state = seed;
+export function drawTexture(baseColor, noiseColor, pattern = {}) {
+  const options = typeof pattern === "string" ? { kind: pattern } : pattern;
+  const kind = options.kind ?? "noise";
+  let state = options.seed ?? 1;
   const random = () => {
-    state = (state * 1664525 + 1013904223) >>> 0;
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
     return state / 4294967296;
   };
 
-  context.fillStyle = baseColor;
-  context.fillRect(0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
-  for (let i = 0; i < 48; i += 1) {
-    context.fillStyle = variations[Math.floor(random() * variations.length)];
-    context.fillRect(
-      Math.floor(random() * TEXTURE_SIZE),
-      Math.floor(random() * TEXTURE_SIZE),
-      1 + Math.floor(random() * 2),
-      1 + Math.floor(random() * 2),
-    );
-  }
+  return createTexture((context) => {
+    context.fillStyle = baseColor;
+    context.fillRect(0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
+    for (let index = 0; index < 38; index += 1) {
+      context.fillStyle = noiseColor;
+      const size = 1 + Math.floor(random() * 2);
+      context.fillRect(
+        Math.floor(random() * (TEXTURE_SIZE - size + 1)),
+        Math.floor(random() * (TEXTURE_SIZE - size + 1)),
+        size,
+        size,
+      );
+    }
+
+    context.fillStyle = noiseColor;
+    context.strokeStyle = noiseColor;
+    switch (kind) {
+      case "ore":
+        for (let index = 0; index < 12; index += 1) {
+          const size = index % 3 === 0 ? 2 : 1;
+          context.fillRect(
+            Math.floor(random() * (TEXTURE_SIZE - size)),
+            Math.floor(random() * (TEXTURE_SIZE - size)),
+            size,
+            size,
+          );
+        }
+        break;
+      case "wood":
+      case "planks":
+        context.lineWidth = 1;
+        for (let line = 0; line < 4; line += 1) {
+          const offset = Math.floor(random() * TEXTURE_SIZE);
+          context.beginPath();
+          if (kind === "wood") {
+            context.moveTo(offset, 0);
+            context.lineTo(offset + (random() - 0.5) * 3, TEXTURE_SIZE);
+          } else {
+            const y = line * 4 + 2;
+            context.moveTo(0, y);
+            context.lineTo(TEXTURE_SIZE, y);
+          }
+          context.stroke();
+        }
+        break;
+      case "bricks":
+      case "tiles":
+        context.lineWidth = 1;
+        for (let y = 0; y < TEXTURE_SIZE; y += 4) {
+          context.beginPath();
+          context.moveTo(0, y);
+          context.lineTo(TEXTURE_SIZE, y);
+          context.stroke();
+        }
+        for (let row = 0; row < 4; row += 1) {
+          const offset = row % 2 ? 2 : 0;
+          for (let x = offset; x < TEXTURE_SIZE; x += 4) {
+            context.beginPath();
+            context.moveTo(x, row * 4);
+            context.lineTo(x, row * 4 + 4);
+            context.stroke();
+          }
+        }
+        break;
+      case "cobble":
+        for (let index = 0; index < 12; index += 1) {
+          const x = Math.floor(random() * 14);
+          const y = Math.floor(random() * 14);
+          context.fillRect(x, y, 2 + Math.floor(random() * 3), 2 + Math.floor(random() * 3));
+        }
+        break;
+      case "glass":
+        context.globalAlpha = 0.75;
+        context.fillRect(1, 1, 2, 1);
+        context.fillRect(2, 2, 1, 7);
+        context.fillRect(9, 9, 6, 1);
+        context.globalAlpha = 1;
+        break;
+      case "foliage":
+        for (let index = 0; index < 16; index += 1) {
+          context.fillRect(
+            Math.floor(random() * TEXTURE_SIZE),
+            Math.floor(random() * TEXTURE_SIZE),
+            1 + Math.floor(random() * 2),
+            1 + Math.floor(random() * 2),
+          );
+        }
+        break;
+      case "dots":
+        for (let index = 0; index < 10; index += 1) {
+          context.fillRect(
+            Math.floor(random() * TEXTURE_SIZE),
+            Math.floor(random() * TEXTURE_SIZE),
+            2,
+            2,
+          );
+        }
+        break;
+      case "rings":
+        context.lineWidth = 1;
+        context.beginPath();
+        context.arc(8, 8, 5, 0, Math.PI * 2);
+        context.arc(8, 8, 2, 0, Math.PI * 2);
+        context.stroke();
+        break;
+      case "bands":
+        for (let y = 2; y < TEXTURE_SIZE; y += 5) context.fillRect(0, y, TEXTURE_SIZE, 1);
+        break;
+      default:
+        break;
+    }
+  });
+}
+
+function createPickaxeTexture(headColor, handleColor) {
+  return createTexture((context) => {
+    context.fillStyle = handleColor;
+    context.fillRect(7, 5, 2, 10);
+    context.fillRect(5, 12, 2, 2);
+    context.fillStyle = headColor;
+    context.fillRect(3, 3, 10, 2);
+    context.fillRect(2, 4, 3, 3);
+    context.fillRect(11, 4, 3, 3);
+    context.fillStyle = "rgba(255, 255, 255, 0.35)";
+    context.fillRect(4, 3, 4, 1);
+  });
+}
+
+function createCrackTexture(stage) {
+  return createTexture((context) => {
+    const cracks = [
+      [[8, 0], [7, 4], [9, 6], [6, 9], [7, 13], [5, 16]],
+      [[0, 5], [4, 6], [7, 4], [10, 6], [15, 5]],
+      [[15, 10], [11, 9], [9, 6], [10, 3], [9, 0]],
+      [[2, 16], [4, 12], [6, 9], [3, 7], [1, 5]],
+      [[5, 13], [8, 11], [10, 12], [13, 10], [16, 11]],
+      [[4, 0], [5, 3], [7, 4]],
+      [[0, 11], [3, 10], [6, 9]],
+      [[12, 16], [11, 13], [10, 12]],
+      [[13, 2], [12, 5], [10, 6]],
+      [[2, 2], [4, 4], [5, 7]],
+    ];
+    const visibleCracks = cracks.slice(0, stage);
+    context.lineWidth = 1.5;
+    context.lineCap = "square";
+    for (const crack of visibleCracks) {
+      context.beginPath();
+      context.moveTo(...crack[0]);
+      for (const [x, y] of crack.slice(1)) context.lineTo(x, y);
+      context.strokeStyle = "rgba(20, 20, 20, 0.82)";
+      context.stroke();
+      context.lineWidth = 0.6;
+      context.strokeStyle = "rgba(255, 255, 255, 0.55)";
+      context.stroke();
+      context.lineWidth = 1.5;
+    }
+  });
 }
 
 export function createBlockTextures() {
-  const grassTop = createTexture((context) => {
-    paintNoise(context, "#5eaa32", ["#4c9128", "#70bb3c", "#438326"], 2);
-  });
+  const woodenPickaxe = createPickaxeTexture("#936138", "#704323");
+  const stonePickaxe = createPickaxeTexture("#888888", "#704323");
+  const ironPickaxe = createPickaxeTexture("#c2c7cc", "#704323");
+  const crackStages = Array.from({ length: 10 }, (_, index) => createCrackTexture(index + 1));
 
-  const grassSide = createTexture((context) => {
-    paintNoise(context, "#80502b", ["#704323", "#936138", "#744828"], 3);
-    context.fillStyle = "#5eaa32";
-    context.fillRect(0, 0, TEXTURE_SIZE, 4);
-    context.fillStyle = "#70bb3c";
-    for (let x = 1; x < TEXTURE_SIZE; x += 4) {
-      context.fillRect(x, 4, 2, 1);
+  const overrides = {
+    grassTop: ["#5eaa32", "#438326", "foliage"],
+    grassSide: ["#80502b", "#60391f", "bands"],
+    dirt: ["#80502b", "#704323", "noise"],
+    stone: ["#888888", "#696969", "cobble"],
+    wood: ["#80502b", "#60391f", "wood"],
+    woodTop: ["#b17a45", "#80502b", "rings"],
+    leaves: ["#397c2b", "#2f6d25", "foliage"],
+    sand: ["#d8c47b", "#c9b36b", "noise"],
+    snow: ["#eef5fa", "#dce8f0", "noise"],
+    coalOre: ["#777777", "#242424", "ore"],
+    ironOre: ["#777777", "#b9815d", "ore"],
+    goldOre: ["#777777", "#edc442", "ore"],
+    diamondOre: ["#777777", "#35d7d2", "ore"],
+    redstoneOre: ["#777777", "#d3342d", "ore"],
+    lapisOre: ["#777777", "#3157c8", "ore"],
+    water: ["#2879bb", "#a9e3ff", "bands"],
+    lava: ["#b83212", "#ffd34a", "bands"],
+    oil: ["#171b20", "#76506e", "bands"],
+    planks: ["#a87542", "#704626", "planks"],
+  };
+  const blockEntries = Object.entries(BLOCKS);
+  const textureSources = new Map();
+  for (const [key, block] of blockEntries) {
+    if (block.id === BLOCKS.AIR.id) continue;
+    const names = Array.isArray(block.textures) ? block.textures : [block.textures];
+    for (const name of names) {
+      if (name && !textureSources.has(name)) textureSources.set(name, { key, block });
     }
-  });
+  }
 
-  const dirt = createTexture((context) => {
-    paintNoise(context, "#80502b", ["#704323", "#936138", "#744828"], 4);
-  });
+  const textures = {
+    woodenPickaxe,
+    stonePickaxe,
+    ironPickaxe,
+    crackStages,
+  };
+  for (const [textureName, { key, block }] of textureSources) {
+    const [baseColor, noiseColor, pattern] = getBlockStyle(key, textureName, block.id, overrides);
+    textures[textureName] = drawTexture(baseColor, noiseColor, {
+      kind: pattern,
+      seed: block.id * 7919 + textureName.length * 101,
+    });
+  }
 
-  const stone = createTexture((context) => {
-    paintNoise(context, "#888888", ["#777777", "#999999", "#707070"], 5);
-  });
+  const blockTextures = Array(BLOCK_COUNT).fill(null);
+  for (const block of Object.values(BLOCKS)) {
+    if (block.id === BLOCKS.AIR.id) continue;
+    const textureNames = Array.isArray(block.textures)
+      ? block.textures
+      : Array(6).fill(block.textures);
+    blockTextures[block.id] = textureNames.map((name) => {
+      const texture = textures[name];
+      if (!texture) throw new Error(`Missing texture "${name}" for ${block.name}.`);
+      return texture;
+    });
+  }
 
-  const wood = createTexture((context) => {
-    paintNoise(context, "#80502b", ["#704323", "#936138", "#744828"], 6);
-    context.fillStyle = "#60391f";
-    for (let x = 3; x < TEXTURE_SIZE; x += 5) {
-      context.fillRect(x, 0, 1, TEXTURE_SIZE);
-    }
-  });
+  return {
+    ...textures,
+    blockTextures,
+  };
+}
 
-  const woodTop = createTexture((context) => {
-    context.fillStyle = "#b17a45";
-    context.fillRect(0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
-    context.strokeStyle = "#80502b";
-    context.lineWidth = 2;
-    context.strokeRect(3, 3, 10, 10);
-    context.strokeRect(6, 6, 4, 4);
-  });
+function getBlockStyle(key, textureName, id, overrides) {
+  if (overrides[textureName]) return overrides[textureName];
 
-  const leaves = createTexture((context) => {
-    paintNoise(context, "#397c2b", ["#2f6d25", "#4b9134", "#397426"], 7);
-  });
-
-  const sand = createTexture((context) => {
-    paintNoise(context, "#d8c47b", ["#c9b36b", "#e7d48e", "#cdb975"], 8);
-  });
-
-  const snow = createTexture((context) => {
-    paintNoise(context, "#eef5fa", ["#dce8f0", "#ffffff", "#e5eef5"], 9);
-  });
-
-  const coalOre = createTexture((context) => {
-    paintNoise(context, "#777777", ["#252525", "#303030", "#999999"], 10);
-  });
-
-  const ironOre = createTexture((context) => {
-    paintNoise(context, "#777777", ["#ad7954", "#c18d65", "#999999"], 11);
-  });
-
-  const planks = createTexture((context) => {
-    paintNoise(context, "#a87542", ["#8d5d35", "#ba8952", "#97653a"], 12);
-    context.fillStyle = "#704626";
-    for (let y = 3; y < TEXTURE_SIZE; y += 5) context.fillRect(0, y, TEXTURE_SIZE, 1);
-  });
-
-  return { grassTop, grassSide, dirt, stone, wood, woodTop, leaves, sand, snow, coalOre, ironOre, planks };
+  const name = key.toLowerCase();
+  const seed = id * 47 + textureName.length * 13;
+  const hue = seed % 360;
+  const color = (saturation, lightness) => `hsl(${hue} ${saturation}% ${lightness}%)`;
+  if (name.includes("ore")) {
+    const oreColors = {
+      copper: "#c77742",
+      emerald: "#39b96b",
+      quartz: "#eee7da",
+    };
+    const oreColor = Object.entries(oreColors).find(([ore]) => name.includes(ore))?.[1] ?? color(75, 58);
+    return ["#777777", oreColor, "ore"];
+  }
+  if (name.includes("log")) return [color(38, 38), color(30, 25), "wood"];
+  if (name.includes("planks")) return [color(44, 52), color(42, 34), "planks"];
+  if (name.includes("leaves") || name.includes("grass")) return [color(50, 38), color(56, 28), "foliage"];
+  if (name.includes("wool")) return [color(30, 78), color(24, 58), "dots"];
+  if (name.includes("glass") || name.includes("ice")) return ["#9edbea", "#e1fbff", "glass"];
+  if (name.includes("brick") || name.includes("tile")) return [color(34, 48), color(25, 30), "bricks"];
+  if (name.includes("block")) return [color(42, 55), color(35, 38), "tiles"];
+  if (name.includes("torch") || name.includes("lantern") || name.includes("glowstone")) {
+    return ["#e3b857", "#fff1a1", "dots"];
+  }
+  if (name.includes("sand")) return ["#d8bf7b", "#b99f5f", "noise"];
+  if (name.includes("snow") || name.includes("calcite") || name.includes("quartz")) {
+    return ["#e8e8df", "#c8cbc9", "noise"];
+  }
+  if (name.includes("copper")) return ["#b96d46", "#d99a68", "ore"];
+  if (name.includes("gold")) return ["#d8aa32", "#f0ca55", "tiles"];
+  if (name.includes("diamond")) return ["#45c8c2", "#9cf5e8", "tiles"];
+  if (name.includes("emerald")) return ["#279b55", "#72dc89", "tiles"];
+  if (name.includes("lapis")) return ["#29478f", "#547bd1", "tiles"];
+  if (name.includes("redstone") || name.includes("red_sand") || name.includes("red_wool")) {
+    return ["#a94632", "#d96d43", "ore"];
+  }
+  if (name.includes("water") || name.includes("prismarine")) return ["#347f91", "#69b2b5", "bands"];
+  if (name.includes("lava") || name.includes("pumpkin")) return ["#bd4a20", "#ed8b2f", "dots"];
+  if (name.includes("coal")) return ["#323638", "#111516", "tiles"];
+  if (name.includes("bedrock") || name.includes("basalt") || name.includes("obsidian")) {
+    return ["#292c33", "#111318", "cobble"];
+  }
+  if (name.includes("cobble") || name.includes("stone") || name.includes("andesite") || name.includes("diorite")) {
+    return ["#81858a", "#565a5e", "cobble"];
+  }
+  if (name.includes("dirt") || name.includes("mud") || name.includes("clay")) {
+    return ["#79533b", "#563a2c", "noise"];
+  }
+  if (name.includes("wood") || name.includes("chest") || name.includes("crafting")) {
+    return ["#94613a", "#644126", "planks"];
+  }
+  return [color(42, 52), color(35, 34), "noise"];
 }

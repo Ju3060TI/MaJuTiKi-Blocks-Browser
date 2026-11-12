@@ -6,7 +6,7 @@ import {
   SphereGeometry,
 } from "three";
 
-const DAY_LENGTH_SECONDS = 240;
+const DAY_LENGTH_SECONDS = 20 * 60;
 
 function smoothstep(edge0, edge1, value) {
   const t = Math.max(0, Math.min(1, (value - edge0) / (edge1 - edge0)));
