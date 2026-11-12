@@ -18,6 +18,7 @@
   </head>
   <body>
     <canvas id="game"></canvas>
+    <div id="damage-flash" aria-hidden="true"></div>
     <div id="main-menu" role="dialog" aria-modal="true" aria-labelledby="main-menu-title">
       <div class="menu-content">
         <p class="menu-eyebrow">WILLKOMMEN IN DER WELT</p>
@@ -144,41 +145,75 @@
     </div>
     <div id="hotbar" aria-label="Hotbar"></div>
     <div id="instructions">Click to play · WASD move · Space jump · Q drop item · E inventory</div>
+    <div id="game-message" role="status" aria-live="polite" hidden></div>
     <section id="inventory" class="inventory-overlay" aria-label="Inventory" hidden>
       <div class="inventory-panel">
         <header>
           <div>
-            <h1>Crafting</h1>
-            <p>Drag stacks into the grid, or click a stack and then a slot. Click the result to craft.</p>
+            <h1>Inventory</h1>
+            <p>Drag items between slots, or click a stack and then a slot. Click the result to craft.</p>
           </div>
           <button id="inventory-close" type="button" aria-label="Close inventory">×</button>
         </header>
-        <div class="crafting-layout">
+        <div class="inventory-top-layout">
+          <section class="equipment-section" aria-label="Armor and player">
+            <h2>Equipment</h2>
+            <div class="equipment-layout">
+              <div id="armor-slots" class="armor-slots" aria-label="Armor slots">
+                <button class="item-slot armor-slot" type="button" data-armor-slot="0" aria-label="Helmet slot"></button>
+                <button class="item-slot armor-slot" type="button" data-armor-slot="1" aria-label="Chestplate slot"></button>
+                <button class="item-slot armor-slot" type="button" data-armor-slot="2" aria-label="Leggings slot"></button>
+                <button class="item-slot armor-slot" type="button" data-armor-slot="3" aria-label="Boots slot"></button>
+              </div>
+              <div class="player-preview" aria-label="Player preview">
+                <span aria-hidden="true">PLAYER</span>
+              </div>
+            </div>
+          </section>
           <section class="crafting-section" aria-label="Crafting grid">
             <h2>Crafting</h2>
             <div class="crafting-workbench">
-              <div id="crafting-grid" class="crafting-grid" role="grid" aria-label="3 by 3 crafting grid">
+              <div id="crafting-grid" class="crafting-grid" role="grid" aria-label="2 by 2 crafting grid">
                 <button class="item-slot crafting-slot" type="button" data-craft-slot="0" role="gridcell" aria-label="Crafting slot 1"></button>
                 <button class="item-slot crafting-slot" type="button" data-craft-slot="1" role="gridcell" aria-label="Crafting slot 2"></button>
                 <button class="item-slot crafting-slot" type="button" data-craft-slot="2" role="gridcell" aria-label="Crafting slot 3"></button>
                 <button class="item-slot crafting-slot" type="button" data-craft-slot="3" role="gridcell" aria-label="Crafting slot 4"></button>
-                <button class="item-slot crafting-slot" type="button" data-craft-slot="4" role="gridcell" aria-label="Crafting slot 5"></button>
-                <button class="item-slot crafting-slot" type="button" data-craft-slot="5" role="gridcell" aria-label="Crafting slot 6"></button>
-                <button class="item-slot crafting-slot" type="button" data-craft-slot="6" role="gridcell" aria-label="Crafting slot 7"></button>
-                <button class="item-slot crafting-slot" type="button" data-craft-slot="7" role="gridcell" aria-label="Crafting slot 8"></button>
-                <button class="item-slot crafting-slot" type="button" data-craft-slot="8" role="gridcell" aria-label="Crafting slot 9"></button>
               </div>
-              <span class="crafting-arrow" aria-hidden="true">➜</span>
+              <span class="crafting-arrow" aria-hidden="true">→</span>
               <button id="craft-output" class="item-slot output-slot" type="button" aria-label="Crafting output" disabled></button>
             </div>
           </section>
+        </div>
+        <div class="inventory-storage-layout">
           <section class="inventory-section" aria-label="Player inventory">
-            <h2>Inventory</h2>
-            <div id="inventory-items" class="player-inventory" role="grid" aria-label="Player inventory, 3 rows by 9 columns"></div>
+            <h2>Items</h2>
+            <div id="inventory-items" class="player-inventory" role="grid" aria-label="Main inventory, 3 rows by 9 columns"></div>
+            <h2 class="hotbar-heading">Hotbar</h2>
+            <div id="inventory-hotbar" class="inventory-hotbar" role="grid" aria-label="Hotbar, 1 row by 9 columns"></div>
             <div id="inventory-message" aria-live="polite"></div>
           </section>
         </div>
       </div>
     </section>
+    <template id="chest-menu-template">
+      <section id="chest-menu" class="chest-overlay" role="dialog" aria-modal="true"
+        aria-labelledby="chest-title" hidden>
+        <div class="chest-panel">
+          <header>
+            <h2 id="chest-title">Truhe</h2>
+            <button class="chest-close menu-button" type="button">Schließen</button>
+          </header>
+          <section class="chest-slot-section" aria-label="Truheninhalt">
+            <h3>Truheninhalt</h3>
+            <div id="chest-slots" class="chest-grid" role="grid"></div>
+          </section>
+          <section class="chest-slot-section" aria-label="Spielerinventar">
+            <h3>Spielerinventar</h3>
+            <div id="chest-player-slots" class="chest-grid" role="grid"></div>
+          </section>
+          <p class="chest-message" aria-live="polite"></p>
+        </div>
+      </section>
+    </template>
   </body>
 </html>

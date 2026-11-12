@@ -18,6 +18,14 @@ import { Zombie } from "./Zombie.js";
 import { BlockType, CHUNK_SIZE, WORLD_HEIGHT } from "../world/WorldGenerator.js";
 
 const MAX_ENTITIES = 12;
+const HOSTILE_MOB_KINDS = new Set([
+  "zombie",
+  "skeleton",
+  "creeper",
+  "spider",
+  "enderman",
+  "herobrine",
+]);
 const DESPAWN_DISTANCE = 32;
 const MAX_VILLAGERS = 4;
 const VILLAGE_SCAN_INTERVAL = 3;
@@ -212,6 +220,15 @@ export class EntityManager {
       for (const child of entity.mesh.children) meshes.push(child);
     }
     return meshes;
+  }
+
+  clearHostileMobs() {
+    for (let index = this.entities.length - 1; index >= 0; index -= 1) {
+      const entity = this.entities[index];
+      if (!HOSTILE_MOB_KINDS.has(entity.kind)) continue;
+      entity.dispose();
+      this.entities.splice(index, 1);
+    }
   }
 
   damage(entity, playerPosition = null, amount = 1) {

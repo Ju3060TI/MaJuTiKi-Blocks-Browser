@@ -52,6 +52,8 @@ export class WorldGenerator {
     const random = seededRandom(seed);
     this.temperature = createNoise2D(random);
     this.moisture = createNoise2D(random);
+    this.biomeWarp = createNoise2D(random);
+    this.biomePatches = createNoise2D(random);
     this.continentalness = createNoise2D(random);
     this.erosion = createNoise2D(random);
     this.peaks = createNoise2D(random);
@@ -61,11 +63,13 @@ export class WorldGenerator {
   }
 
   getTemperatureAt(worldX, worldZ) {
-    return this.temperature(worldX * 0.003 + 73, worldZ * 0.003 - 41);
+    const warp = this.biomeWarp(worldX * 0.0015 + 13, worldZ * 0.0015 - 29);
+    return this.temperature((worldX + warp * 28) * 0.0015 + 73, (worldZ - warp * 28) * 0.0015 - 41);
   }
 
   getMoistureAt(worldX, worldZ) {
-    return this.moisture(worldX * 0.003 + 17, worldZ * 0.003 - 59);
+    const warp = this.biomeWarp(worldX * 0.0013 - 37, worldZ * 0.0013 + 11);
+    return this.moisture((worldX - warp * 24) * 0.0015 + 17, (worldZ + warp * 24) * 0.0015 - 59);
   }
 
   getContinentalnessAt(worldX, worldZ) {
@@ -86,10 +90,6 @@ export class WorldGenerator {
   }
 
   #getBaseHeightAt(worldX, worldZ) {
-    if (this.getBiomeAt(worldX, worldZ) === "swamp") {
-      return SEA_LEVEL - 2 + this.erosion(worldX * 0.004, worldZ * 0.004) * 0.5;
-    }
-
     const continent = this.getContinentalnessAt(worldX, worldZ);
     const erosion = this.getErosionAt(worldX, worldZ);
     const peaks = this.getPeaksAt(worldX, worldZ);
@@ -99,18 +99,26 @@ export class WorldGenerator {
     const base = SEA_LEVEL - 4 + continent * 10 + land * 2;
     const hills = erosion * (1.5 + ruggedness * 3);
     const mountains = land * ruggedness * mountainStrength * mountainStrength * 28;
-    return base + hills + mountains;
+    const naturalHeight = base + hills + mountains;
+    const weights = this.getBiomeWeightsAt(worldX, worldZ);
+    const swampHeight = SEA_LEVEL - 2 + this.erosion(worldX * 0.004, worldZ * 0.004) * 0.5;
+    const cherryGroveHeight = SEA_LEVEL + 2 + this.getPeaksAt(worldX, worldZ) * 4;
+    const naturalWeight = 1 - weights.swamp - weights.cherry_grove;
+    return naturalHeight * naturalWeight +
+      swampHeight * weights.swamp +
+      cherryGroveHeight * weights.cherry_grove;
   }
 
   getHeightAt(worldX, worldZ) {
-    const biome = this.getBiomeAt(worldX, worldZ);
-    const riverCut = biome === "swamp" ? 0 : this.getRiverStrengthAt(worldX, worldZ) * 4.5;
+    const swampBlend = this.getBiomeWeightsAt(worldX, worldZ).swamp;
+    const riverCut = this.getRiverStrengthAt(worldX, worldZ) * 4.5 * (1 - swampBlend);
     const height = Math.floor(this.#getBaseHeightAt(worldX, worldZ) - riverCut);
     return Math.max(3, Math.min(WORLD_HEIGHT - 8, height));
   }
 
   getWaterLevelAt(worldX, worldZ) {
-    if (this.getBiomeAt(worldX, worldZ) === "swamp") return SEA_LEVEL;
+    const swampBlend = this.getBiomeWeightsAt(worldX, worldZ).swamp;
+    if (swampBlend > 0.55) return SEA_LEVEL;
     const baseHeight = this.#getBaseHeightAt(worldX, worldZ);
     const riverStrength = this.getRiverStrengthAt(worldX, worldZ);
     if (riverStrength > 0.45 && baseHeight > SEA_LEVEL) {
@@ -120,13 +128,55 @@ export class WorldGenerator {
   }
 
   getBiomeAt(worldX, worldZ) {
+    const weights = this.getBiomeWeightsAt(worldX, worldZ);
+    return Object.entries(weights).reduce(
+      (dominant, [biome, weight]) => weight > dominant.weight ? { biome, weight } : dominant,
+      { biome: "forest", weight: -1 },
+    ).biome;
+  }
+
+  getBiomeWeightsAt(worldX, worldZ) {
     const temperature = this.getTemperatureAt(worldX, worldZ);
     const moisture = this.getMoistureAt(worldX, worldZ);
-    if (temperature < -0.34) return "tundra";
-    if (moisture > 0.48 && temperature > -0.3 && temperature < 0.3) return "swamp";
-    if (temperature > 0.44 && moisture < 0.1) return "desert";
-    if (temperature > 0.12 && moisture < 0.28) return "savanna";
-    return "forest";
+    const scores = {
+      tundra: 1 - smoothstep(-0.42, -0.08, temperature),
+      desert: smoothstep(0.16, 0.55, temperature) * (1 - smoothstep(-0.02, 0.38, moisture)),
+      savanna: smoothstep(-0.08, 0.34, temperature) * (1 - smoothstep(0.12, 0.5, moisture)),
+      swamp:
+        smoothstep(0.16, 0.54, moisture) *
+        smoothstep(-0.42, -0.08, temperature) *
+        (1 - smoothstep(0.24, 0.55, temperature)),
+      cherry_grove:
+        smoothstep(-0.16, 0.2, temperature) *
+        (1 - smoothstep(0.35, 0.72, temperature)) *
+        smoothstep(-0.3, 0.24, moisture) *
+        (1 - smoothstep(0.68, 0.94, moisture)) *
+        0.9,
+      forest: 0.12 + smoothstep(-0.38, 0.12, temperature) *
+        (0.25 + smoothstep(0.08, 0.52, moisture) * 0.45),
+    };
+    const total = Object.values(scores).reduce((sum, score) => sum + score, 0);
+    return Object.fromEntries(
+      Object.entries(scores).map(([biome, score]) => [biome, score / total]),
+    );
+  }
+
+  getSurfaceBlockAt(worldX, worldZ) {
+    const weights = this.getBiomeWeightsAt(worldX, worldZ);
+    const patchNoise = (this.biomePatches(worldX * 0.12 + 19, worldZ * 0.12 - 43) + 1) / 2;
+    let threshold = 0;
+    for (const [biome, block] of [
+      ["tundra", BlockType.SNOW],
+      ["desert", BlockType.SAND],
+      ["savanna", BlockType.SAVANNA_GRASS],
+      ["cherry_grove", BlockType.CHERRY_GRASS],
+      ["swamp", BlockType.GRASS],
+      ["forest", BlockType.GRASS],
+    ]) {
+      threshold += weights[biome];
+      if (patchNoise <= threshold) return block;
+    }
+    return BlockType.GRASS;
   }
 
   generateChunk(chunkX = 0, chunkY = 0, chunkZ = 0) {
@@ -140,14 +190,9 @@ export class WorldGenerator {
         const worldZ = chunkZ * CHUNK_SIZE + z;
         const height = this.getHeightAt(worldX, worldZ);
         const waterLevel = this.getWaterLevelAt(worldX, worldZ);
-        const biome = this.getBiomeAt(worldX, worldZ);
-        const fluidType = biome === "swamp" ? BlockType.OIL : BlockType.WATER;
-        const surface =
-          biome === "tundra"
-            ? BlockType.SNOW
-            : biome === "desert"
-              ? BlockType.SAND
-              : BlockType.GRASS;
+        const swampBlend = this.getBiomeWeightsAt(worldX, worldZ).swamp;
+        const fluidType = swampBlend > 0.55 ? BlockType.OIL : BlockType.WATER;
+        const surface = this.getSurfaceBlockAt(worldX, worldZ);
         heightMap[x * CHUNK_SIZE + z] = { height, surface, waterLevel };
         for (let localY = 0; localY < CHUNK_SIZE; localY += 1) {
           const worldY = worldYStart + localY;
@@ -311,9 +356,11 @@ export class WorldGenerator {
       for (let worldZ = chunkZ * CHUNK_SIZE - 2; worldZ < (chunkZ + 1) * CHUNK_SIZE + 2; worldZ += 1) {
         const biome = this.getBiomeAt(worldX, worldZ);
         const isSavanna = biome === "savanna";
+        const isCherryGrove = biome === "cherry_grove";
         if (
-          (!isSavanna && biome !== "forest") ||
-          hash2D(worldX, worldZ, 0x7f4a7c15) > (isSavanna ? 0.012 : 0.045) ||
+          (!isSavanna && !isCherryGrove && biome !== "forest") ||
+          hash2D(worldX, worldZ, 0x7f4a7c15) >
+            (isSavanna ? 0.012 : isCherryGrove ? 0.032 : 0.045) ||
           this.getWaterLevelAt(worldX, worldZ) > this.getHeightAt(worldX, worldZ)
         ) {
           continue;
@@ -322,12 +369,16 @@ export class WorldGenerator {
         const height = this.getHeightAt(worldX, worldZ);
         const localX = worldX - chunkX * CHUNK_SIZE;
         const localZ = worldZ - chunkZ * CHUNK_SIZE;
-        const treeHeight = isSavanna
+        const treeHeight = isSavanna || isCherryGrove
           ? 5 + Math.floor(hash2D(worldX, worldZ, 0x31a7) * 4)
           : 4 + Math.floor(hash2D(worldX, worldZ, 0x7f4a7c15) * 3);
         const trunkStart = height + 1;
         const crownY = height + treeHeight;
-        const trunkBlock = isSavanna ? BlockType.ACACIA_LOG : BlockType.WOOD;
+        const trunkBlock = isSavanna
+          ? BlockType.ACACIA_LOG
+          : isCherryGrove
+            ? BlockType.CHERRY_LOG
+            : BlockType.WOOD;
 
         for (let worldY = trunkStart; worldY <= crownY; worldY += 1) {
           if (worldX < chunkX * CHUNK_SIZE || worldX >= (chunkX + 1) * CHUNK_SIZE) continue;
@@ -362,6 +413,17 @@ export class WorldGenerator {
             chunkY,
             chunkZ,
           );
+        } else if (isCherryGrove) {
+          this.#placeOakCanopy(
+            blocks,
+            worldX,
+            worldZ,
+            crownY,
+            chunkX,
+            chunkY,
+            chunkZ,
+            BlockType.CHERRY_LEAVES,
+          );
         } else {
           this.#placeOakCanopy(
             blocks,
@@ -377,7 +439,16 @@ export class WorldGenerator {
     }
   }
 
-  #placeOakCanopy(blocks, worldX, worldZ, crownY, chunkX, chunkY, chunkZ) {
+  #placeOakCanopy(
+    blocks,
+    worldX,
+    worldZ,
+    crownY,
+    chunkX,
+    chunkY,
+    chunkZ,
+    leafBlock = BlockType.LEAVES,
+  ) {
     const yStart = chunkY * CHUNK_SIZE;
     const yEnd = yStart + CHUNK_SIZE;
     for (let worldY = crownY - 1; worldY <= crownY + 2; worldY += 1) {
@@ -397,7 +468,7 @@ export class WorldGenerator {
             continue;
           }
           const index = blockIndex(localLeafX, worldY - yStart, localLeafZ);
-          if (blocks[index] === BlockType.AIR) blocks[index] = BlockType.LEAVES;
+          if (blocks[index] === BlockType.AIR) blocks[index] = leafBlock;
         }
       }
     }
@@ -437,16 +508,55 @@ export class WorldGenerator {
         const worldX = chunkX * CHUNK_SIZE + x;
         const worldZ = chunkZ * CHUNK_SIZE + z;
         const biome = this.getBiomeAt(worldX, worldZ);
-        if (biome !== "savanna" && biome !== "swamp") continue;
-        const chance = biome === "swamp" ? 0.11 : 0.025;
-        if (hash2D(worldX, worldZ, 0x7521) > chance) continue;
-
         const height = this.getHeightAt(worldX, worldZ);
         const waterLevel = this.getWaterLevelAt(worldX, worldZ);
-        const plantY = (waterLevel > height ? waterLevel : height) + 1;
-        if (plantY < worldYStart || plantY >= worldYEnd) continue;
-        const index = blockIndex(x, plantY - worldYStart, z);
-        if (blocks[index] === BlockType.AIR) blocks[index] = BlockType.TALL_GRASS;
+        const surface = this.getSurfaceBlockAt(worldX, worldZ);
+        const plantY = (
+          biome === "swamp" && waterLevel > height
+            ? waterLevel
+            : height
+        ) + 1;
+        if (
+          plantY < worldYStart ||
+          plantY >= worldYEnd ||
+          blocks[blockIndex(x, plantY - worldYStart, z)] !== BlockType.AIR
+        ) {
+          continue;
+        }
+
+        const roll = hash2D(worldX, worldZ, 0x7521);
+        let plant = null;
+        if (biome === "savanna" && roll < 0.2) {
+          plant = BlockType.DRY_GRASS;
+        } else if (
+          biome === "cherry_grove" &&
+          hash2D(worldX, worldZ, 0x2d931) < 0.12
+        ) {
+          plant = BlockType.CHERRY_PETALS;
+        } else if (
+          (surface === BlockType.GRASS ||
+            surface === BlockType.CHERRY_GRASS ||
+            surface === BlockType.SAVANNA_GRASS) &&
+          roll < 0.2
+        ) {
+          plant = BlockType.TALL_GRASS;
+        } else if (
+          biome === "swamp" &&
+          waterLevel > height &&
+          roll < 0.11
+        ) {
+          plant = BlockType.TALL_GRASS;
+        } else if (
+          biome === "forest" &&
+          hash2D(worldX, worldZ, 0x4ad8) < 0.025
+        ) {
+          plant = hash2D(worldX, worldZ, 0x19b7) < 0.5
+            ? BlockType.DANDELION
+            : BlockType.POPPY;
+        }
+        if (plant !== null) {
+          blocks[blockIndex(x, plantY - worldYStart, z)] = plant;
+        }
       }
     }
   }

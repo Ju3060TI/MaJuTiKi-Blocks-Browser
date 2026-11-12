@@ -8,13 +8,13 @@ import {
 } from "three";
 import { BlockType } from "../world/blocks.js";
 
-const ENCHANTMENT_COST = 5;
+const ENCHANTMENT_COST = 10;
 const FIREBALL_COST = 5;
 const FIREBALL_DAMAGE = 5;
 const ENCHANTMENTS = Object.freeze([
   { id: "SHARPNESS", name: "Sharpness" },
-  { id: "LIFESTEAL", name: "Lifesteal" },
-  { id: "FIRE_ASPECT", name: "Fire Aspect" },
+  { id: "EFFICIENCY", name: "Efficiency" },
+  { id: "UNBREAKING", name: "Unbreaking" },
 ]);
 
 export class MagicSystem {
@@ -44,22 +44,24 @@ export class MagicSystem {
   }
 
   handleRightClick() {
-    if (this.inventory.hasMagicWandSelected()) {
-      this.castFireball();
-      return true;
-    }
-
     this.camera.updateMatrixWorld();
     this.raycaster.setFromCamera(this.screenCenter, this.camera);
     const hit = this.raycaster.intersectObjects(this.world.getMeshes(), false)[0];
-    if (!hit) return false;
+    if (hit) {
+      const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+      const x = Math.floor(hit.point.x - normal.x * 0.01);
+      const y = Math.floor(hit.point.y - normal.y * 0.01);
+      const z = Math.floor(hit.point.z - normal.z * 0.01);
+      const block = this.world.getBlockAt(x, y, z);
+      if (block === BlockType.CHEST || block === BlockType.BED) return false;
+      if (block === BlockType.ENCHANTING_TABLE) {
+        this.openEnchantingMenu();
+        return true;
+      }
+    }
 
-    const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
-    const x = Math.floor(hit.point.x - normal.x * 0.01);
-    const y = Math.floor(hit.point.y - normal.y * 0.01);
-    const z = Math.floor(hit.point.z - normal.z * 0.01);
-    if (this.world.getBlockAt(x, y, z) !== BlockType.ENCHANTING_TABLE) return false;
-    this.openEnchantingMenu();
+    if (!this.inventory.hasMagicWandSelected()) return false;
+    this.castFireball();
     return true;
   }
 
@@ -76,19 +78,19 @@ export class MagicSystem {
   }
 
   applyRandomEnchantment() {
-    const weapon = this.inventory.getSelectedWeapon();
-    if (!weapon) {
-      this.message.textContent = "Wähle zuerst ein Schwert im Inventar aus.";
+    const item = this.inventory.getSelectedEnchantableItem();
+    if (!item) {
+      this.message.textContent = "Wähle zuerst ein Werkzeug oder eine Waffe im Inventar aus.";
       return false;
     }
     if (this.player.experience < ENCHANTMENT_COST) {
       this.message.textContent = `Du benötigst ${ENCHANTMENT_COST} XP.`;
       return false;
     }
-    const existing = new Set(this.inventory.getSelectedWeaponEnchantments());
+    const existing = new Set(this.inventory.getSelectedEnchantments());
     const available = ENCHANTMENTS.filter(({ id }) => !existing.has(id));
     if (available.length === 0) {
-      this.message.textContent = "Dieses Schwert hat bereits alle Verzauberungen.";
+      this.message.textContent = "Dieses Item hat bereits alle Verzauberungen.";
       return false;
     }
 
@@ -97,7 +99,7 @@ export class MagicSystem {
       this.message.textContent = `Du benötigst ${ENCHANTMENT_COST} XP.`;
       return false;
     }
-    if (!this.inventory.enchantSelectedWeapon(enchantment.id)) {
+    if (!this.inventory.enchantSelectedItem(enchantment.id)) {
       this.player.awardExperience(ENCHANTMENT_COST);
       this.message.textContent = "Die Verzauberung konnte nicht angewendet werden.";
       return false;
@@ -257,15 +259,15 @@ export class MagicSystem {
   }
 
   #renderMenu() {
-    const weapon = this.inventory.getSelectedWeapon();
-    const name = weapon ? this.inventory.getSelectedWeaponName() : null;
+    const item = this.inventory.getSelectedEnchantableItem();
+    const name = item ? this.inventory.getItemName(item.item) : null;
     this.experienceLabel.textContent = `Erfahrung: ${this.player.experience} XP`;
-    this.weaponLabel.textContent = weapon
-      ? `Waffe: ${name} · ${this.inventory.getSelectedWeaponEnchantments().join(", ") || "unverzaubert"}`
-      : "Wähle ein Schwert im Inventar aus.";
-    this.enchantButton.disabled = !weapon ||
+    this.weaponLabel.textContent = item
+      ? `${name} · ${this.inventory.getSelectedEnchantments().join(", ") || "unverzaubert"}`
+      : "Wähle ein Werkzeug oder eine Waffe im Inventar aus.";
+    this.enchantButton.disabled = !item ||
       this.player.experience < ENCHANTMENT_COST ||
-      this.inventory.getSelectedWeaponEnchantments().length >= ENCHANTMENTS.length;
+      ENCHANTMENTS.every(({ id }) => this.inventory.getSelectedEnchantments().includes(id));
     this.enchantButton.style.opacity = this.enchantButton.disabled ? "0.55" : "1";
   }
 

@@ -2,12 +2,18 @@ import { Raycaster, Vector2 } from "three";
 import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
 import { ToolType } from "../inventory/InventoryManager.js";
 import { BlockType, CHUNK_SIZE, WORLD_HEIGHT } from "../world/WorldGenerator.js";
-import { ITEMS } from "../world/blocks.js";
+import { BLOCKS, ITEMS } from "../world/blocks.js";
+import { AudioManager } from "../systems/AudioManager.js";
+import { ChestSystem } from "../systems/ChestSystem.js";
 import { MagicSystem } from "../systems/MagicSystem.js";
+import { ParticleSystem } from "../systems/ParticleSystem.js";
 
 const PLAYER_RADIUS = 0.3;
 const PLAYER_HEIGHT = 1.8;
 const EYE_HEIGHT = 1.62;
+const VIEW_BOB_AMPLITUDE = 0.045;
+const VIEW_BOB_PHASE_PER_UNIT = 2.4;
+const VIEW_BOB_SMOOTHING = 12;
 const MOVE_SPEED = 5;
 const JUMP_SPEED = 8;
 const GRAVITY = 22;
@@ -16,6 +22,9 @@ const WATER_GRAVITY_SCALE = 0.18;
 const COLLISION_EPSILON = 1e-5;
 const BASE_MAX_HEALTH = 20;
 const DAMAGE_COOLDOWN = 1;
+const BLOCKS_BY_ID = new Map(
+  Object.values(BLOCKS).map((block) => [block.id, block]),
+);
 
 export class PlayerController {
   constructor(
@@ -50,10 +59,22 @@ export class PlayerController {
     this.healthElement = document.querySelector("#health");
     this.healthBar = document.querySelector("#health-fill");
     this.healthLabel = document.querySelector("#health-label");
+    this.messageElement = document.querySelector("#game-message");
+    this.messageTimer = null;
+    this.stepElapsed = 0;
+    this.viewBobPhase = 0;
+    this.viewBobOffset = 0;
+    this.damageFlashElement = document.querySelector("#damage-flash");
+    this.audio = new AudioManager();
+    this.particles = new ParticleSystem(world.scene, world.lodColors);
     this.keys = new Set();
     this.experience = 0;
     this.gameSettings = window.gameSettings ?? { gameMode: "vanilla", rpgClass: "survivor" };
     this.magicSystem = new MagicSystem(this, world, camera, inventory);
+    this.chestSystem = new ChestSystem(world, inventory);
+    this.chestSystem.onClose = () => {
+      if (!this.controls.isLocked) this.controls.lock();
+    };
     this.forward = camera.getWorldDirection(camera.position.clone());
     this.right = camera.position.clone();
 
@@ -78,9 +99,11 @@ export class PlayerController {
     this.onKeyUp = (event) => this.keys.delete(event.code);
     this.onBlur = () => this.keys.clear();
     this.onCanvasClick = () => {
+      this.audio.unlock();
       if (!this.controls.isLocked) this.controls.lock();
     };
     this.onMouseDown = (event) => {
+      if (this.controls.isLocked) this.audio.unlock();
       if (event.button === 2 && this.controls.isLocked && this.magicSystem.handleRightClick()) {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -116,12 +139,20 @@ export class PlayerController {
   update(deltaSeconds) {
     const delta = Math.min(deltaSeconds, 0.05);
     this.damageCooldown = Math.max(0, this.damageCooldown - delta);
+    const previousX = this.position.x;
+    const previousZ = this.position.z;
     if (this.controls.isLocked) this.#moveHorizontally(delta);
+    this.#updateFootsteps(delta);
     if (this.gameSettings.gameMode === "creative") {
       this.#flyVertically(delta);
     } else {
       this.#applyGravity(delta);
     }
+    this.#updateViewBobbing(
+      delta,
+      Math.hypot(this.position.x - previousX, this.position.z - previousZ),
+    );
+    this.particles.update(delta);
     this.world.update(this.position);
     this.#syncCamera();
     this.#updateMining(delta);
@@ -132,6 +163,10 @@ export class PlayerController {
   dispose() {
     this.#stopMining();
     this.magicSystem.dispose();
+    this.chestSystem.dispose();
+    this.particles.dispose();
+    this.audio.dispose();
+    clearTimeout(this.messageTimer);
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.onBlur);
@@ -146,6 +181,24 @@ export class PlayerController {
 
   cancelMining() {
     this.#stopMining();
+  }
+
+  openChestAt(position) {
+    this.cancelMining();
+    this.chestSystem.openAt(position);
+    this.controls.unlock();
+  }
+
+  closeChest() {
+    return this.chestSystem.close();
+  }
+
+  setSpawnPoint(position) {
+    this.spawnPoint = { ...position };
+  }
+
+  showMessage(message) {
+    this.#showMessage(message);
   }
 
   setGameSettings(settings = {}) {
@@ -248,6 +301,8 @@ export class PlayerController {
     this.lastAttacker = source;
     this.health = Math.max(0, this.health - damage);
     this.damageCooldown = DAMAGE_COOLDOWN;
+    this.audio.playHurt();
+    this.#triggerDamageFlash();
     if (this.health === 0) this.#respawn();
     this.#renderHealth();
     return true;
@@ -402,6 +457,10 @@ export class PlayerController {
 
     const tool = this.inventory?.getSelectedTool();
     const dropped = this.world.breakBlock(block.x, block.y, block.z);
+    if (dropped !== BlockType.AIR) {
+      this.audio.playBlockBreak();
+      this.particles.spawn(dropped, block.x, block.y, block.z);
+    }
     const canHarvest = this.#canHarvest(dropped, tool);
     const isFluid = [
       BlockType.WATER,
@@ -420,8 +479,83 @@ export class PlayerController {
     if (dropped !== BlockType.AIR && !isFluid && this.gameSettings.gameMode !== "creative") {
       this.awardExperience(1);
     }
-    if (tool && canHarvest && !isFluid) this.inventory?.damageSelectedTool();
+    if (
+      dropped !== BlockType.AIR &&
+      tool &&
+      !isFluid &&
+      this.gameSettings.gameMode !== "creative"
+    ) {
+      const durability = this.inventory?.damageSelectedTool();
+      if (durability?.broken) {
+        this.audio.playToolBreak();
+        this.#showMessage(this.inventory.messageElement?.textContent || "Tool broken.");
+      }
+    }
     this.#resetMiningTarget();
+  }
+
+  #updateFootsteps(delta) {
+    const moving = this.controls.isLocked && [
+      "KeyW", "KeyA", "KeyS", "KeyD",
+      "ArrowUp", "ArrowLeft", "ArrowDown", "ArrowRight",
+    ].some((key) => this.keys.has(key));
+    const footY = Math.floor(this.position.y - 0.06);
+    const standingOnSolid = this.world.isSolidAt(this.position.x, footY, this.position.z);
+    if (!moving || (!this.grounded && !standingOnSolid)) {
+      this.stepElapsed = 0;
+      return;
+    }
+
+    this.stepElapsed += delta;
+    if (this.stepElapsed < 0.38) return;
+    this.stepElapsed = 0;
+    const blockType = this.world.getBlockAt(this.position.x, footY, this.position.z);
+    const blockName = BLOCKS_BY_ID.get(blockType)?.name.toLowerCase() ?? "";
+    const surface = blockName.includes("stone") || blockName.includes("cobble")
+      ? "stone"
+      : blockName.includes("wood") || blockName.includes("plank")
+        ? "wood"
+        : "grass";
+    this.audio.playStep(surface);
+  }
+
+  #updateViewBobbing(delta, horizontalDistance) {
+    const footY = Math.floor(this.position.y - 0.06);
+    const standingOnSolid = this.world.isSolidAt(this.position.x, footY, this.position.z);
+    const walking = this.controls.isLocked &&
+      (this.grounded || standingOnSolid) &&
+      horizontalDistance > 1e-5 &&
+      delta > 0;
+    const targetAmplitude = walking ? VIEW_BOB_AMPLITUDE : 0;
+    const blend = 1 - Math.exp(-VIEW_BOB_SMOOTHING * delta);
+    this.viewBobOffset += (
+      Math.sin(this.viewBobPhase) * targetAmplitude - this.viewBobOffset
+    ) * blend;
+    if (walking) {
+      const horizontalSpeed = horizontalDistance / delta;
+      this.viewBobPhase = (
+        this.viewBobPhase + horizontalSpeed * VIEW_BOB_PHASE_PER_UNIT * delta
+      ) % (Math.PI * 2);
+    }
+  }
+
+  #showMessage(message) {
+    if (!this.messageElement) return;
+    clearTimeout(this.messageTimer);
+    this.messageElement.textContent = message;
+    this.messageElement.hidden = false;
+    this.messageTimer = window.setTimeout(() => {
+      this.messageElement.hidden = true;
+      this.messageElement.textContent = "";
+      this.messageTimer = null;
+    }, 2400);
+  }
+
+  #triggerDamageFlash() {
+    if (!this.damageFlashElement) return;
+    this.damageFlashElement.classList.remove("active");
+    void this.damageFlashElement.offsetWidth;
+    this.damageFlashElement.classList.add("active");
   }
 
   #dropSelectedItem() {
@@ -464,28 +598,32 @@ export class PlayerController {
       [ToolType.DIAMOND_AXE]: 0.25,
       [ToolType.NETHERITE_AXE]: 0.2,
     };
+    let duration;
     if (blockType === BlockType.STONE) {
-      if (tool && Object.hasOwn(pickaxeDurations, tool)) return pickaxeDurations[tool];
-      return 9;
-    }
-    if (blockType === BlockType.IRON_ORE) {
-      return {
+      duration = tool && Object.hasOwn(pickaxeDurations, tool) ? pickaxeDurations[tool] : 9;
+    } else if (blockType === BlockType.IRON_ORE) {
+      duration = {
         [ToolType.STONE_PICKAXE]: 5,
         [ToolType.IRON_PICKAXE]: 3,
         [ToolType.DIAMOND_PICKAXE]: 2,
         [ToolType.NETHERITE_PICKAXE]: 1.5,
       }[tool] ?? 9;
-    }
-    if ([BlockType.DIAMOND_ORE, BlockType.GOLD_ORE, BlockType.LAPIS_ORE, BlockType.REDSTONE_ORE].includes(blockType)) {
-      return {
+    } else if ([BlockType.DIAMOND_ORE, BlockType.GOLD_ORE, BlockType.LAPIS_ORE, BlockType.REDSTONE_ORE].includes(blockType)) {
+      duration = {
         [ToolType.IRON_PICKAXE]: 5,
         [ToolType.DIAMOND_PICKAXE]: 2.5,
         [ToolType.NETHERITE_PICKAXE]: 1.8,
       }[tool] ?? 9;
+    } else if (isWood && tool && Object.hasOwn(axeDurations, tool)) {
+      duration = axeDurations[tool];
+    } else if (tool && Object.hasOwn(pickaxeDurations, tool)) {
+      duration = 0.4;
+    } else {
+      duration = blockType === BlockType.WOOD || blockType === BlockType.PLANKS ? 2 : 0.8;
     }
-    if (isWood && tool && Object.hasOwn(axeDurations, tool)) return axeDurations[tool];
-    if (tool && Object.hasOwn(pickaxeDurations, tool)) return 0.4;
-    return blockType === BlockType.WOOD || blockType === BlockType.PLANKS ? 2 : 0.8;
+    return this.inventory?.getSelectedToolEnchantments().includes("EFFICIENCY")
+      ? duration / 1.5
+      : duration;
   }
 
   #canHarvest(blockType, tool) {
@@ -668,6 +806,10 @@ export class PlayerController {
   }
 
   #syncCamera() {
-    this.camera.position.set(this.position.x, this.position.y + EYE_HEIGHT, this.position.z);
+    this.camera.position.set(
+      this.position.x,
+      this.position.y + EYE_HEIGHT + this.viewBobOffset,
+      this.position.z,
+    );
   }
 }

@@ -7,6 +7,7 @@ function defineBlock(
   hardness = 1,
   toolTier = 0,
   materialOptions = {},
+  isCross = false,
 ) {
   return Object.freeze({
     id,
@@ -16,6 +17,7 @@ function defineBlock(
     textures: Array.isArray(textures) ? Object.freeze([...textures]) : textures,
     hardness,
     toolTier,
+    isCross,
     materialOptions: Object.freeze({ ...materialOptions }),
   });
 }
@@ -134,10 +136,10 @@ const additionalBlocks = [
   ["MELON", "Melon", true, "melon", 1, 0],
   ["SUGAR_CANE", "Sugar Cane", false, "sugarCane", 0, 0],
   ["BAMBOO", "Bamboo", false, "bamboo", 0, 0],
-  ["TALL_GRASS", "Tall Grass", false, "tallGrass", 0, 0],
-  ["DANDELION", "Dandelion", false, "dandelion", 0, 0],
-  ["POPPY", "Poppy", false, "poppy", 0, 0],
-  ["ROSE_BUSH", "Rose Bush", false, "roseBush", 0, 0],
+  ["TALL_GRASS", "Tall Grass", false, "tallGrass", 0, 0, { transparent: true, alphaTest: 0.5 }, true],
+  ["DANDELION", "Dandelion", false, "dandelion", 0, 0, { transparent: true, alphaTest: 0.5 }, true],
+  ["POPPY", "Poppy", false, "poppy", 0, 0, { transparent: true, alphaTest: 0.5 }, true],
+  ["ROSE_BUSH", "Rose Bush", false, "roseBush", 0, 0, { transparent: true, alphaTest: 0.5 }, true],
   ["COPPER_ORE", "Copper Ore", true, "copperOre", 3, 1],
   ["EMERALD_ORE", "Emerald Ore", true, "emeraldOre", 3, 3],
   ["NETHER_QUARTZ_ORE", "Nether Quartz Ore", true, "netherQuartzOre", 3, 2],
@@ -184,10 +186,42 @@ const additionalBlocks = [
     emissive: 0x8c4dff,
     emissiveIntensity: 0.5,
   }],
+  ["BED", "Bed", true, "redWool", 0.2, 0],
+  ["CHERRY_GRASS", "Cherry Grove Grass", true, [
+    "grassSide", "grassSide", "cherryGrassTop", "dirt", "grassSide", "grassSide",
+  ], 0.6, 0],
+  ["SAVANNA_GRASS", "Savanna Grass", true, [
+    "grassSide", "grassSide", "savannaGrassTop", "dirt", "grassSide", "grassSide",
+  ], 0.6, 0],
+  ["CHERRY_LOG", "Cherry Log", true, "cherryLog", 2, 0],
+  ["CHERRY_LEAVES", "Cherry Leaves", true, "cherryLeaves", 0.2, 0, {
+    transparent: true,
+    alphaTest: 0.5,
+  }],
+  ["CHERRY_PETALS", "Cherry Petals", false, "cherryPetals", 0, 0, {
+    transparent: true,
+    alphaTest: 0.5,
+  }, true],
+  ["DRY_GRASS", "Dry Grass", false, "dryGrass", 0, 0, {
+    transparent: true,
+    alphaTest: 0.5,
+  }, true],
+  ["OAK_SAPLING", "Oak Sapling", false, "oakSapling", 0, 0, {
+    transparent: true,
+    alphaTest: 0.5,
+  }, true],
+  ["ACACIA_SAPLING", "Acacia Sapling", false, "acaciaSapling", 0, 0, {
+    transparent: true,
+    alphaTest: 0.5,
+  }, true],
+  ["CHERRY_SAPLING", "Cherry Sapling", false, "cherrySapling", 0, 0, {
+    transparent: true,
+    alphaTest: 0.5,
+  }, true],
 ];
 
 const generatedBlocks = Object.fromEntries(
-  additionalBlocks.map(([key, name, isSolid, texture, hardness, toolTier, materialOptions = {}], index) => [
+  additionalBlocks.map(([key, name, isSolid, texture, hardness, toolTier, materialOptions = {}, isCross = false], index) => [
     key,
     defineBlock(
       Object.keys(existingBlocks).length + index,
@@ -198,6 +232,7 @@ const generatedBlocks = Object.fromEntries(
       hardness,
       toolTier,
       materialOptions,
+      isCross,
     ),
   ]),
 );

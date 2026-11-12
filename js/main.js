@@ -37,6 +37,27 @@ function loadSavedWorld() {
     if (
       !Number.isInteger(savedWorld?.seed) ||
       !Array.isArray(savedWorld.blockEdits) ||
+      (savedWorld.chestInventories !== undefined &&
+        (!Array.isArray(savedWorld.chestInventories) ||
+          !savedWorld.chestInventories.every(([key, slots]) =>
+            typeof key === "string" &&
+            Array.isArray(slots) &&
+            slots.length === 27 &&
+            slots.every((stack) => stack === null || (
+              stack &&
+              (Number.isInteger(stack.item) || typeof stack.item === "string") &&
+              Number.isInteger(stack.count) &&
+              stack.count >= 1 &&
+              stack.count <= 64 &&
+              (stack.enchantments === undefined ||
+                (Array.isArray(stack.enchantments) &&
+                  stack.enchantments.every((value) => typeof value === "string"))) &&
+              (stack.durability === undefined ||
+                (Number.isFinite(stack.durability) && stack.durability >= 0)) &&
+              (stack.maxDurability === undefined ||
+                (Number.isFinite(stack.maxDurability) && stack.maxDurability >= 1))
+            )),
+          ))),
       !savedWorld.blockEdits.every(([key, entries]) =>
         typeof key === "string" &&
         Array.isArray(entries) &&
@@ -70,6 +91,7 @@ const world = new World(
   scene,
   new WorldGenerator(savedWorld?.seed),
   savedWorld?.blockEdits,
+  savedWorld?.chestInventories,
 );
 const inventory = new InventoryManager(world.textures);
 const player = new PlayerController(camera, renderer.domElement, world, world.getSpawnPoint(), inventory);
@@ -104,6 +126,7 @@ let isPaused = false;
 let resumePending = false;
 let pauseSettingsOpen = false;
 let multiplayerTimer = null;
+let skyElapsedSeconds = 0;
 const multiplayerButtonLabel = multiplayerButton.textContent;
 
 function showPauseMenu() {
@@ -203,6 +226,11 @@ window.addEventListener("resize", resize);
 
 window.addEventListener("keydown", (event) => {
   if (event.code === "Escape") {
+    if (player.chestSystem.isOpen) {
+      event.preventDefault();
+      player.closeChest();
+      return;
+    }
     if (player.controls.isLocked) {
       event.preventDefault();
       showPauseMenu();
@@ -268,6 +296,32 @@ function interact(button) {
     y: Math.floor(hit.point.y - normal.y * 0.01),
     z: Math.floor(hit.point.z - normal.z * 0.01),
   };
+  if (button === 2 && world.getBlockAt(hitBlock.x, hitBlock.y, hitBlock.z) === BlockType.BED) {
+    if (!sky.isNight()) {
+      player.showMessage("Du kannst nur nachts schlafen.");
+      return;
+    }
+    if (
+      world.getBlockAt(hitBlock.x, hitBlock.y + 1, hitBlock.z) !== BlockType.AIR ||
+      world.getBlockAt(hitBlock.x, hitBlock.y + 2, hitBlock.z) !== BlockType.AIR
+    ) {
+      player.showMessage("Über dem Bett ist nicht genug Platz.");
+      return;
+    }
+    sky.skipToMorning(player.position);
+    player.setSpawnPoint({
+      x: hitBlock.x + 0.5,
+      y: hitBlock.y + 1,
+      z: hitBlock.z + 0.5,
+    });
+    entities.clearHostileMobs();
+    player.showMessage("Du hast bis zum Morgen geschlafen. Respawnpunkt gesetzt.");
+    return;
+  }
+  if (button === 2 && world.getBlockAt(hitBlock.x, hitBlock.y, hitBlock.z) === BlockType.CHEST) {
+    player.openChestAt(hitBlock);
+    return;
+  }
   const block = inventory.getSelectedBlock();
   if (block === null) return;
   const placeAt = {
@@ -306,9 +360,10 @@ player.controls.addEventListener("unlock", () => {
 function animate() {
   const delta = clock.getDelta();
   if (!isPaused) {
+    skyElapsedSeconds += delta;
     player.update(delta);
-    sky.update(delta, player.position);
-    const isDay = Math.sin(sky.time * Math.PI * 2 - Math.PI / 2) > 0;
+    sky.update(delta, player.position, skyElapsedSeconds);
+    const isDay = sky.isDay();
     entities.update(delta, player, isDay);
   }
   renderer.render(scene, camera);

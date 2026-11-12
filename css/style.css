@@ -457,10 +457,33 @@ body.game-paused #status {
   visibility: hidden;
 }
 
+body.menu-open #game-message,
+body.game-paused #game-message {
+  visibility: hidden;
+}
+
 #game {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+#damage-flash {
+  position: fixed;
+  z-index: 4;
+  inset: 0;
+  background: rgb(255 0 0 / 48%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+#damage-flash.active {
+  animation: damage-flash 200ms ease-out both;
+}
+
+@keyframes damage-flash {
+  from { opacity: 0.8; }
+  to { opacity: 0; }
 }
 
 #crosshair {
@@ -504,6 +527,22 @@ body.game-paused #status {
   text-align: center;
   text-shadow: 0 1px 3px #000;
   pointer-events: none;
+}
+
+#game-message {
+  position: fixed;
+  right: 12px;
+  bottom: 150px;
+  left: 12px;
+  color: #fff3a6;
+  font: 700 15px "Courier New", monospace;
+  text-align: center;
+  text-shadow: 0 2px 3px #000;
+  pointer-events: none;
+}
+
+#game-message[hidden] {
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -586,6 +625,52 @@ body.game-paused #status {
   color: #fff;
   cursor: pointer;
   text-shadow: 0 1px 2px #000;
+}
+
+.hotbar-slot[hidden] {
+  display: none;
+}
+
+.hotbar-slot.has-durability {
+  height: 54px;
+  grid-template-rows: 24px 4px 1fr;
+}
+
+.hotbar-slot.enchanted-item .iso-block,
+.item-slot.enchanted-item .iso-block {
+  filter: drop-shadow(0 0 5px #ca72ff) drop-shadow(0 0 10px #8b35d2);
+}
+
+.hotbar-slot.enchanted-item {
+  border-color: #dfb4ff;
+  box-shadow: 0 0 9px rgb(179 95 255 / 75%);
+}
+
+.tool-hotbar-slot {
+  border-color: #b7c8a9;
+  background: rgb(39 54 38 / 82%);
+}
+
+.durability-track {
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  border: 1px solid rgb(0 0 0 / 80%);
+  background: rgb(20 20 20 / 85%);
+}
+
+.durability-fill {
+  display: block;
+  height: 100%;
+  background: #64d34c;
+  transition: width 120ms linear;
+}
+
+.inventory-durability {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  left: 3px;
 }
 
 .hotbar-slot.selected {
@@ -677,7 +762,7 @@ body.game-paused #status {
   display: grid;
   place-items: center;
   padding: 20px;
-  background: rgb(0 0 0 / 56%);
+  background: rgb(0 0 0 / 68%);
   cursor: default;
 }
 
@@ -686,15 +771,15 @@ body.game-paused #status {
 }
 
 .inventory-panel {
-  width: min(620px, 100%);
+  width: min(760px, 100%);
   max-height: calc(100vh - 40px);
-  padding: 18px;
+  padding: 18px 22px;
   overflow: auto;
-  border: 3px solid #111;
-  border-radius: 3px;
-  background: #c6c6c6;
-  color: #fff;
-  box-shadow: inset 0 0 0 2px #fff, 0 16px 55px rgb(0 0 0 / 45%);
+  border: 3px solid #151515;
+  border-radius: 2px;
+  background: rgb(103 103 103 / 94%);
+  color: #f4f4f4;
+  box-shadow: inset 0 0 0 2px #aaa, 0 16px 55px rgb(0 0 0 / 55%);
   image-rendering: pixelated;
 }
 
@@ -712,20 +797,23 @@ body.game-paused #status {
 
 .inventory-panel h1 {
   font-size: 21px;
-  color: #222;
+  color: #fff;
+  text-shadow: 2px 2px #3f3f3f;
 }
 
 .inventory-panel header p {
   margin-top: 5px;
-  color: #424242;
+  color: #e0e0e0;
   font-size: 13px;
 }
 
 #inventory-close {
   width: 34px;
   height: 34px;
-  border: 0;
-  border-radius: 5px;
+  border: 2px solid #373737;
+  border-right-color: #eee;
+  border-bottom-color: #eee;
+  border-radius: 0;
   background: #777;
   color: #fff;
   font-size: 24px;
@@ -733,34 +821,72 @@ body.game-paused #status {
   cursor: pointer;
 }
 
-.crafting-layout {
+.inventory-top-layout {
   display: grid;
-  gap: 22px;
-  margin-top: 20px;
+  grid-template-columns: minmax(200px, 0.9fr) minmax(330px, 1.1fr);
+  gap: 26px;
+  padding: 18px 0 22px;
 }
 
 .inventory-panel h2 {
   margin-bottom: 10px;
   font-size: 15px;
-  color: #252525;
+  color: #fff;
+  text-shadow: 1px 1px #333;
+}
+
+.equipment-layout {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.armor-slots {
+  display: grid;
+  grid-template-columns: 48px;
+  gap: 4px;
+}
+
+.player-preview {
+  display: grid;
+  width: 120px;
+  height: 190px;
+  place-items: center;
+  border: 2px solid #4a4a4a;
+  background: linear-gradient(180deg, rgb(255 255 255 / 9%), rgb(0 0 0 / 20%));
+  color: rgb(255 255 255 / 55%);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-shadow: 1px 1px #333;
 }
 
 .crafting-workbench {
   display: flex;
   align-items: center;
-  gap: clamp(14px, 5vw, 38px);
+  gap: clamp(12px, 3vw, 28px);
 }
 
-.crafting-grid,
-.player-inventory {
+.crafting-grid {
   display: grid;
-  grid-template-columns: repeat(3, 48px);
+  grid-template-columns: repeat(2, 48px);
   gap: 4px;
 }
 
+.inventory-storage-layout {
+  padding-top: 2px;
+  border-top: 2px solid rgb(255 255 255 / 20%);
+}
+
 .player-inventory {
+  display: grid;
   grid-template-columns: repeat(9, minmax(0, 1fr));
-  gap: 3px;
+  gap: 4px;
+}
+
+.inventory-hotbar {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 4px;
 }
 
 .item-slot {
@@ -771,12 +897,12 @@ body.game-paused #status {
   place-items: center;
   padding: 3px;
   border: 2px solid #373737;
-  border-right-color: #fff;
-  border-bottom-color: #fff;
+  border-top-color: #eee;
+  border-left-color: #eee;
   border-radius: 0;
-  background: #8b8b8b;
+  background: #777;
   color: #fff;
-  box-shadow: inset 2px 2px #555;
+  box-shadow: inset 2px 2px #555, inset -2px -2px #999;
   font: inherit;
   text-shadow: 1px 1px #222;
   cursor: grab;
@@ -788,7 +914,8 @@ body.game-paused #status {
   cursor: grabbing;
 }
 
-.player-inventory .item-slot {
+.player-inventory .item-slot,
+.inventory-hotbar .item-slot {
   width: 100%;
   min-width: 0;
   aspect-ratio: 1;
@@ -796,7 +923,7 @@ body.game-paused #status {
 }
 
 .item-slot.filled {
-  background-color: #6b6b6b;
+  background-color: #696969;
 }
 
 .item-slot .iso-block {
@@ -804,10 +931,19 @@ body.game-paused #status {
   height: 32px;
 }
 
-.player-inventory .iso-block {
+.player-inventory .iso-block,
+.inventory-hotbar .iso-block {
   width: min(34px, 85%);
   height: auto;
   aspect-ratio: 17 / 16;
+}
+
+.hotbar-heading {
+  margin-top: 14px !important;
+}
+
+.inventory-hotbar-slot.selected {
+  outline: 2px solid #e8df8a;
 }
 
 .item-slot .stack-count {
@@ -825,9 +961,9 @@ body.game-paused #status {
 }
 
 .crafting-arrow {
-  color: #383838;
+  color: #fff;
   font-size: 32px;
-  text-shadow: 1px 1px #eee;
+  text-shadow: 2px 2px #333;
 }
 
 .output-slot {
@@ -847,8 +983,101 @@ body.game-paused #status {
 #inventory-message {
   min-height: 18px;
   margin-top: 4px;
-  color: #303030;
+  color: #fff;
   font-size: 12px;
+}
+
+.chest-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  overflow: auto;
+  background: rgb(0 0 0 / 72%);
+}
+
+.chest-overlay[hidden] {
+  display: none;
+}
+
+.chest-panel {
+  width: min(620px, 100%);
+  padding: 22px;
+  border: 3px solid #34271a;
+  background: #b28a58;
+  box-shadow: inset 0 0 0 4px #d4ae76, 0 18px 60px rgb(0 0 0 / 65%);
+  color: #271d13;
+}
+
+.chest-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.chest-panel h2,
+.chest-panel h3 {
+  margin: 0 0 8px;
+  font-family: "Courier New", monospace;
+}
+
+.chest-panel h2 {
+  margin: 0;
+}
+
+.chest-slot-section + .chest-slot-section {
+  margin-top: 16px;
+}
+
+.chest-grid {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.chest-slot {
+  display: grid;
+  min-width: 0;
+  aspect-ratio: 1;
+  place-content: center;
+  gap: 2px;
+  padding: 3px;
+  overflow: hidden;
+  border: 2px solid #473a2b;
+  border-right-color: #dfc59c;
+  border-bottom-color: #dfc59c;
+  background: #806344;
+  color: #fff;
+  font: 10px "Courier New", monospace;
+  text-align: center;
+  text-shadow: 1px 1px #000;
+  cursor: pointer;
+}
+
+.chest-slot.filled {
+  background: #685137;
+}
+
+.chest-slot span,
+.chest-slot small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chest-slot.enchanted-item {
+  box-shadow: inset 0 0 8px #c46aff, 0 0 6px #b14cff;
+}
+
+.chest-message {
+  min-height: 18px;
+  margin: 10px 0 0;
+  color: #4b1f13;
+  font-size: 13px;
 }
 
 @media (max-width: 560px) {
@@ -876,13 +1105,37 @@ body.game-paused #status {
     padding: 12px;
   }
 
+  .inventory-top-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+    padding: 14px 0 18px;
+  }
+
+  .equipment-layout {
+    justify-content: flex-start;
+  }
+
+  .player-preview {
+    width: 96px;
+    height: 150px;
+  }
+
   .item-slot {
     width: 40px;
     height: 40px;
   }
 
-  .crafting-grid {
-    grid-template-columns: repeat(3, 40px);
+  .chest-panel {
+    padding: 12px;
+  }
+
+  .chest-grid {
+    gap: 2px;
+  }
+
+  .chest-slot {
+    padding: 1px;
+    font-size: 7px;
   }
 
   .crafting-workbench {

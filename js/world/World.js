@@ -1,6 +1,7 @@
 import {
   BoxGeometry,
   Color,
+  DoubleSide,
   InstancedMesh,
   Mesh,
   MeshBasicMaterial,
@@ -60,13 +61,24 @@ function normalizeLodDistance(value) {
 }
 
 export class World {
-  constructor(scene, worldGenerator = new WorldGenerator(), savedBlockEdits = []) {
+  constructor(
+    scene,
+    worldGenerator = new WorldGenerator(),
+    savedBlockEdits = [],
+    savedChestInventories = [],
+  ) {
     this.scene = scene;
     this.generator = worldGenerator;
     this.chunks = new Map();
     this.lodMeshes = new Map();
     this.blockEdits = new Map(
       savedBlockEdits.map(([key, entries]) => [key, new Map(entries)]),
+    );
+    this.chestInventories = new Map(
+      savedChestInventories.map(([key, slots]) => [
+        key,
+        slots.map((stack) => stack ? { ...stack, enchantments: [...(stack.enchantments ?? [])] } : null),
+      ]),
     );
     this.itemDrops = [];
     this.geometry = new BoxGeometry(1, 1, 1);
@@ -215,6 +227,56 @@ export class World {
     return true;
   }
 
+  getChestInventoryAt(position) {
+    const key = chunkKey(
+      Math.floor(position.x),
+      Math.floor(position.y),
+      Math.floor(position.z),
+    );
+    const slots = this.chestInventories.get(key);
+    return slots
+      ? slots.map((stack) => stack ? { ...stack, enchantments: [...(stack.enchantments ?? [])] } : null)
+      : Array.from({ length: 27 }, () => null);
+  }
+
+  setChestInventoryAt(position, slots) {
+    if (!Array.isArray(slots) || slots.length !== 27) {
+      throw new TypeError("A chest inventory must contain exactly 27 slots.");
+    }
+    const normalized = slots.map((stack) => {
+      if (stack === null) return null;
+      if (
+        !stack ||
+        !(Number.isInteger(stack.item) || typeof stack.item === "string") ||
+        !Number.isInteger(stack.count) ||
+        stack.count < 1 ||
+        stack.count > 64 ||
+        (stack.enchantments !== undefined &&
+          (!Array.isArray(stack.enchantments) ||
+            !stack.enchantments.every((value) => typeof value === "string"))) ||
+        (stack.durability !== undefined &&
+          (!Number.isFinite(stack.durability) || stack.durability < 0)) ||
+        (stack.maxDurability !== undefined &&
+          (!Number.isFinite(stack.maxDurability) || stack.maxDurability < 1))
+      ) {
+        throw new TypeError("Chest inventory contains an invalid item stack.");
+      }
+      return {
+        item: stack.item,
+        count: stack.count,
+        ...(stack.durability !== undefined ? { durability: stack.durability } : {}),
+        ...(stack.maxDurability !== undefined ? { maxDurability: stack.maxDurability } : {}),
+        ...(stack.enchantments?.length ? { enchantments: [...stack.enchantments] } : {}),
+      };
+    });
+    const key = chunkKey(
+      Math.floor(position.x),
+      Math.floor(position.y),
+      Math.floor(position.z),
+    );
+    this.chestInventories.set(key, normalized);
+  }
+
   breakBlock(x, y, z) {
     const type = this.getBlockAt(x, y, z);
     if (
@@ -322,6 +384,7 @@ export class World {
     localStorage.setItem(storageKey, JSON.stringify({
       seed: this.generator.seed,
       blockEdits: [...this.blockEdits].map(([key, edits]) => [key, [...edits]]),
+      chestInventories: [...this.chestInventories],
     }));
   }
 
@@ -583,7 +646,14 @@ export class World {
       if (!faceTextures) throw new Error(`Missing face textures for ${block.name}.`);
       const materialOptions = block.id === BLOCKS.WATER.id
         ? { ...block.materialOptions, transparent: true, opacity: 0.7, depthWrite: false }
-        : block.materialOptions;
+        : block.isCross
+          ? {
+            ...block.materialOptions,
+            transparent: true,
+            alphaTest: 0.5,
+            side: DoubleSide,
+          }
+          : block.materialOptions;
       materials[block.id] = faceTextures.map(
         (map) => new MeshLambertMaterial({ map, ...materialOptions }),
       );
@@ -597,22 +667,21 @@ export class World {
     for (const block of Object.values(BLOCKS)) {
       if (block.id === BLOCKS.AIR.id) continue;
       const texture = this.textures.blockTextures[block.id]?.[2];
-      const context = texture?.image?.getContext?.("2d");
-      if (!context) {
+      const pixels = texture?.image?.data;
+      if (!pixels) {
         colors[block.id] = this.lodFallbackColor;
         continue;
       }
 
-      const { data } = context.getImageData(0, 0, texture.image.width, texture.image.height);
       let red = 0;
       let green = 0;
       let blue = 0;
       let totalAlpha = 0;
-      for (let index = 0; index < data.length; index += 4) {
-        const alpha = data[index + 3] / 255;
-        red += data[index] * alpha;
-        green += data[index + 1] * alpha;
-        blue += data[index + 2] * alpha;
+      for (let index = 0; index < pixels.length; index += 4) {
+        const alpha = pixels[index + 3] / 255;
+        red += pixels[index] * alpha;
+        green += pixels[index + 1] * alpha;
+        blue += pixels[index + 2] * alpha;
         totalAlpha += alpha;
       }
       colors[block.id] = totalAlpha > 0

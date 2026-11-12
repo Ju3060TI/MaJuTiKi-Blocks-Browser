@@ -69,7 +69,10 @@ const ITEM_NAMES = Object.freeze({
 });
 
 const MAX_STACK_SIZE = 64;
-const INVENTORY_SLOT_COUNT = 27;
+const MAIN_INVENTORY_SLOT_COUNT = 27;
+const HOTBAR_SLOT_COUNT = 9;
+const HOTBAR_START_INDEX = MAIN_INVENTORY_SLOT_COUNT;
+const INVENTORY_SLOT_COUNT = MAIN_INVENTORY_SLOT_COUNT + HOTBAR_SLOT_COUNT;
 const TOOL_DURABILITY = Object.freeze({
   [ToolType.FLINT_PICKAXE]: 30,
   [ToolType.FLINT_AXE]: 30,
@@ -94,11 +97,25 @@ function isGear(item) {
   return GEAR_ITEMS.has(item);
 }
 
+function armorSlotFor(item) {
+  const name = itemName(item).toLowerCase();
+  if (name.includes("helmet")) return 0;
+  if (name.includes("chestplate")) return 1;
+  if (name.includes("leggings")) return 2;
+  if (name.includes("boots")) return 3;
+  return -1;
+}
+
 function createStack(item, count) {
   return {
     item,
     count,
-    ...(isTool(item) ? { durability: TOOL_DURABILITY[item] } : {}),
+    ...(isTool(item)
+      ? {
+          durability: TOOL_DURABILITY[item],
+          maxDurability: TOOL_DURABILITY[item],
+        }
+      : {}),
   };
 }
 
@@ -106,24 +123,12 @@ function itemName(item) {
   return BLOCK_NAMES[item] ?? ITEM_NAMES[item] ?? String(item);
 }
 
-const HOTBAR_ITEMS = [
-  BlockType.GRASS,
-  BlockType.DIRT,
-  BlockType.STONE,
-  BlockType.WOOD,
-  BlockType.SAND,
-  BlockType.SNOW,
-  BlockType.PLANKS,
-  BlockType.CRAFTING_TABLE,
-  BlockType.LEAVES,
-  BlockType.ENCHANTING_TABLE,
-];
 const BLOCK_IDS = new Set(Object.values(BLOCKS).map(({ id }) => id));
 
 const RECIPES = [
   {
-    type: "shapeless",
-    ingredients: [[BlockType.PLANKS, 2]],
+    type: "shaped",
+    pattern: [[BlockType.PLANKS], [BlockType.PLANKS]],
     output: [ToolType.STICK, 4],
   },
   {
@@ -235,9 +240,34 @@ const RECIPES = [
     pattern: [
       [BlockType.OBSIDIAN, BlockType.DIAMOND_ORE, BlockType.OBSIDIAN],
       [BlockType.OBSIDIAN, BlockType.MAGIC_ESSENCE, BlockType.OBSIDIAN],
+      [null, BlockType.DIAMOND_ORE, null],
     ],
     output: [BlockType.ENCHANTING_TABLE, 1],
   },
+  {
+    type: "shaped",
+    pattern: [
+      [BlockType.PLANKS, BlockType.PLANKS, BlockType.PLANKS],
+      [BlockType.PLANKS, null, BlockType.PLANKS],
+      [BlockType.PLANKS, BlockType.PLANKS, BlockType.PLANKS],
+    ],
+    output: [BlockType.CHEST, 1],
+  },
+  ...[
+    BlockType.WHITE_WOOL,
+    BlockType.RED_WOOL,
+    BlockType.BLUE_WOOL,
+    BlockType.GREEN_WOOL,
+    BlockType.BLACK_WOOL,
+    "Wool",
+  ].map((wool) => ({
+    type: "shaped",
+    pattern: [
+      [wool, wool, wool],
+      [BlockType.PLANKS, BlockType.PLANKS, BlockType.PLANKS],
+    ],
+    output: [BlockType.BED, 1],
+  })),
   {
     type: "shaped",
     pattern: [[BlockType.MAGIC_ESSENCE], [ToolType.STICK]],
@@ -276,12 +306,14 @@ export class InventoryManager {
     this.textures = textures;
     this.textureUrls = new WeakMap();
     this.items = Array.from({ length: INVENTORY_SLOT_COUNT }, () => null);
-    this.craftingItems = Array.from({ length: 9 }, () => null);
+    this.craftingItems = Array.from({ length: 4 }, () => null);
+    this.armorItems = Array.from({ length: 4 }, () => null);
     this.cursorStack = null;
     this.craftMatch = null;
     this.selectedSlot = 0;
     this.selectedTool = null;
     this.selectedWeapon = null;
+    this.selectedEnchantableItem = null;
     this.equippedArmor = null;
     this.selectedMagicItem = null;
     this.selectedTamingItem = null;
@@ -289,9 +321,13 @@ export class InventoryManager {
     this.hotbar = document.querySelector("#hotbar");
     this.panel = document.querySelector("#inventory");
     this.slotsElement = document.querySelector("#inventory-items");
+    this.inventoryHotbarElement = document.querySelector("#inventory-hotbar");
+    this.armorSlotsElement = document.querySelector("#armor-slots");
     this.craftingGridElement = document.querySelector("#crafting-grid");
     this.outputElement = document.querySelector("#craft-output");
     this.messageElement = document.querySelector("#inventory-message");
+    this.canvas = document.querySelector("#game");
+    this.wasPointerLocked = false;
     this.hotbarButtons = [];
     this.#buildHotbar();
     this.onGameSettingsChange = (event) => {
@@ -299,11 +335,13 @@ export class InventoryManager {
       if (nextMode === this.gameMode) return;
       this.gameMode = nextMode;
       this.#buildHotbar();
-      this.selectedSlot = Math.min(this.selectedSlot, this.#getHotbarItems().length - 1);
+      this.selectedSlot = Math.min(this.selectedSlot, HOTBAR_SLOT_COUNT - 1);
       this.render();
     };
     window.addEventListener("gamesettingschange", this.onGameSettingsChange);
     this.onPanelClick = (event) => this.#handlePanelClick(event);
+    this.onInventoryKeyDown = (event) => this.#handleInventoryKeyDown(event);
+    this.onCloseClick = () => this.setVisible(false);
     this.onDragStart = (event) => this.#handleDragStart(event);
     this.onDragOver = (event) => this.#handleDragOver(event);
     this.onDrop = (event) => this.#handleDrop(event);
@@ -320,6 +358,8 @@ export class InventoryManager {
     this.panel.addEventListener("drop", this.onDrop);
     this.panel.addEventListener("dragend", this.onDragEnd);
     this.panel.addEventListener("contextmenu", this.onContextMenu);
+    window.addEventListener("keydown", this.onInventoryKeyDown, true);
+    document.querySelector("#inventory-close").addEventListener("click", this.onCloseClick);
     this.render();
   }
 
@@ -347,7 +387,13 @@ export class InventoryManager {
     if (this.gameMode === "creative" && BLOCK_IDS.has(item)) return true;
     if (this.countItem(item) < amount) return false;
     let remaining = amount;
-    for (let index = 0; index < this.items.length && remaining > 0; index += 1) {
+    const selectedIndex = HOTBAR_START_INDEX + this.selectedSlot;
+    const itemOrder = [
+      ...(this.items[selectedIndex]?.item === item ? [selectedIndex] : []),
+      ...Array.from(this.items.keys()).filter((index) => index !== selectedIndex),
+    ];
+    for (const index of itemOrder) {
+      if (remaining === 0) break;
       const stack = this.items[index];
       if (!stack || stack.item !== item) continue;
       const removed = Math.min(remaining, stack.count);
@@ -355,9 +401,20 @@ export class InventoryManager {
       remaining -= removed;
       if (stack.count === 0) this.items[index] = null;
     }
+    for (let index = 0; index < this.armorItems.length && remaining > 0; index += 1) {
+      const stack = this.armorItems[index];
+      if (!stack || stack.item !== item) continue;
+      const removed = Math.min(remaining, stack.count);
+      stack.count -= removed;
+      remaining -= removed;
+      if (stack.count === 0) this.armorItems[index] = null;
+    }
     if (this.selectedTool === item && this.countItem(item) === 0) this.selectedTool = null;
     if (this.selectedWeapon === item && this.countItem(item) === 0) this.selectedWeapon = null;
-    if (this.equippedArmor === item && this.countItem(item) === 0) this.equippedArmor = null;
+    if (this.selectedEnchantableItem === item && this.countItem(item) === 0) {
+      this.selectedEnchantableItem = this.selectedWeapon ?? this.selectedTool;
+    }
+    this.#syncEquippedArmor();
     if (this.selectedMagicItem === item && this.countItem(item) === 0) this.selectedMagicItem = null;
     if (this.selectedTamingItem === item && this.countItem(item) === 0) this.selectedTamingItem = null;
     this.render();
@@ -367,9 +424,11 @@ export class InventoryManager {
   clear() {
     this.items.fill(null);
     this.craftingItems.fill(null);
+    this.armorItems.fill(null);
     this.cursorStack = null;
     this.selectedTool = null;
     this.selectedWeapon = null;
+    this.selectedEnchantableItem = null;
     this.equippedArmor = null;
     this.selectedMagicItem = null;
     this.selectedTamingItem = null;
@@ -377,16 +436,18 @@ export class InventoryManager {
   }
 
   countItem(item) {
-    return this.items.reduce(
+    const countIn = (slots) => slots.reduce(
       (total, stack) => total + (stack?.item === item ? stack.count : 0),
       0,
     );
+    return countIn(this.items) + countIn(this.armorItems);
   }
 
   getSelectedBlock() {
-    const block = this.#getHotbarItems()[this.selectedSlot];
-    if (this.gameMode === "creative") return block ?? null;
-    return this.countItem(block) > 0 ? block : null;
+    const item = this.items[HOTBAR_START_INDEX + this.selectedSlot]?.item;
+    if (!BLOCK_IDS.has(item)) return null;
+    if (this.gameMode === "creative") return item;
+    return this.countItem(item) > 0 ? item : null;
   }
 
   getSelectedTool() {
@@ -405,14 +466,38 @@ export class InventoryManager {
     return itemName(this.getSelectedWeapon());
   }
 
+  getItemName(item) {
+    return itemName(item);
+  }
+
   getArmorReduction() {
-    return ARMOR_REDUCTION[this.equippedArmor] ?? 0;
+    return this.armorItems.reduce(
+      (total, stack) => total + (ARMOR_REDUCTION[stack?.item] ?? 0),
+      0,
+    );
   }
 
   getWeaponDamage() {
     const stack = this.#getSelectedWeaponStack();
-    const sharpness = stack?.enchantments?.includes("SHARPNESS") ? 3 : 0;
+    const sharpness = stack?.enchantments?.includes("SHARPNESS") ? 2 : 0;
     return (WEAPON_DAMAGE[this.getSelectedWeapon()] ?? 0) + sharpness;
+  }
+
+  getSelectedEnchantableItem() {
+    if (this.selectedEnchantableItem === this.selectedWeapon) {
+      const weapon = this.#getSelectedWeaponStack();
+      if (weapon) return weapon;
+    }
+    const tool = this.getSelectedTool();
+    if (tool && this.selectedEnchantableItem === tool) {
+      return this.items.find((stack) => stack?.item === tool) ?? null;
+    }
+    return this.#getSelectedWeaponStack() ??
+      (tool ? this.items.find((stack) => stack?.item === tool) ?? null : null);
+  }
+
+  getSelectedEnchantments() {
+    return [...(this.getSelectedEnchantableItem()?.enchantments ?? [])];
   }
 
   getSelectedWeaponEnchantments() {
@@ -420,12 +505,21 @@ export class InventoryManager {
   }
 
   enchantSelectedWeapon(enchantment) {
-    const stack = this.#getSelectedWeaponStack();
+    return this.enchantSelectedItem(enchantment);
+  }
+
+  enchantSelectedItem(enchantment) {
+    const stack = this.getSelectedEnchantableItem();
     if (!stack || stack.enchantments?.includes(enchantment)) return false;
     stack.enchantments ??= [];
     stack.enchantments.push(enchantment);
     this.render();
     return true;
+  }
+
+  getSelectedToolEnchantments() {
+    const tool = this.getSelectedTool();
+    return [...(this.items.find((stack) => stack?.item === tool)?.enchantments ?? [])];
   }
 
   hasMagicWandSelected() {
@@ -435,11 +529,18 @@ export class InventoryManager {
 
   selectStartingGear(item) {
     if (this.countItem(item) === 0) return false;
-    if (WEAPON_ITEMS.has(item)) this.selectedWeapon = item;
-    else if (MAGIC_ITEMS.has(item)) this.selectedMagicItem = item;
-    else if (ARMOR_ITEMS.has(item)) this.equippedArmor = item;
-    else if (isTool(item)) this.selectedTool = item;
-    else return false;
+    if (WEAPON_ITEMS.has(item)) {
+      this.selectedWeapon = item;
+      this.selectedEnchantableItem = item;
+    } else if (MAGIC_ITEMS.has(item)) this.selectedMagicItem = item;
+    else if (ARMOR_ITEMS.has(item)) {
+      const index = this.items.findIndex((stack) => stack?.item === item);
+      if (index >= 0) this.#equipArmorFromInventory("inventory", index);
+    }
+    else if (isTool(item)) {
+      this.selectedTool = item;
+      this.selectedEnchantableItem = item;
+    } else return false;
     this.render();
     return true;
   }
@@ -461,17 +562,40 @@ export class InventoryManager {
   selectTool(tool) {
     if (tool !== null && (!isTool(tool) || this.countItem(tool) === 0)) return;
     this.selectedTool = tool;
+    if (tool !== null) this.selectedEnchantableItem = tool;
+    else if (this.selectedEnchantableItem !== this.selectedWeapon) {
+      this.selectedEnchantableItem = this.selectedWeapon;
+    }
     this.render();
   }
 
   damageSelectedTool() {
-    if (!this.selectedTool) return false;
-    const stack = this.items.find((itemStack) => itemStack?.item === this.selectedTool);
+    if (!this.selectedTool) return null;
+    const hotbarStack = this.items[HOTBAR_START_INDEX + this.selectedSlot];
+    const stack = hotbarStack?.item === this.selectedTool
+      ? hotbarStack
+      : this.items.find((itemStack) => itemStack?.item === this.selectedTool);
     if (!stack) {
       this.selectedTool = null;
-      return false;
+      this.render();
+      return null;
+    }
+    if (stack.enchantments?.includes("UNBREAKING") && Math.random() >= 0.5) {
+      return {
+        item: stack.item,
+        durability: stack.durability,
+        maxDurability: stack.maxDurability,
+        broken: false,
+        skipped: true,
+      };
     }
     stack.durability -= 1;
+    const result = {
+      item: stack.item,
+      durability: stack.durability,
+      maxDurability: stack.maxDurability,
+      broken: stack.durability <= 0,
+    };
     if (stack.durability <= 0) {
       const brokenTool = stack.item;
       this.items[this.items.indexOf(stack)] = null;
@@ -479,12 +603,18 @@ export class InventoryManager {
       this.messageElement.textContent = `${itemName(brokenTool)} broke.`;
     }
     this.render();
-    return true;
+    return result;
   }
 
   selectSlot(slot) {
-    if (slot < 0 || slot >= this.#getHotbarItems().length) return;
+    if (slot < 0 || slot >= HOTBAR_SLOT_COUNT) return;
     this.selectedSlot = slot;
+    const item = this.items[HOTBAR_START_INDEX + slot]?.item;
+    this.selectedTool = isTool(item) ? item : null;
+    this.selectedWeapon = WEAPON_ITEMS.has(item) ? item : null;
+    this.selectedEnchantableItem = this.selectedWeapon ?? this.selectedTool;
+    this.selectedMagicItem = MAGIC_ITEMS.has(item) ? item : null;
+    this.selectedTamingItem = TAMING_ITEMS.has(item) ? item : null;
     this.render();
   }
 
@@ -493,6 +623,7 @@ export class InventoryManager {
   }
 
   setVisible(visible) {
+    if (visible === !this.panel.hidden) return;
     if (!visible && this.cursorStack) {
       if (!this.#canAddItem(this.cursorStack.item, this.cursorStack.count)) {
         this.messageElement.textContent = "Inventory is full; place the held stack before closing.";
@@ -501,8 +632,13 @@ export class InventoryManager {
       this.addItem(this.cursorStack.item, this.cursorStack.count);
       this.cursorStack = null;
     }
+    if (visible) {
+      this.wasPointerLocked = document.pointerLockElement === this.canvas;
+      if (this.wasPointerLocked) document.exitPointerLock();
+    }
     this.panel.hidden = !visible;
     if (visible) this.render();
+    else this.#restorePointerLock();
   }
 
   dispose() {
@@ -516,13 +652,19 @@ export class InventoryManager {
     this.panel.removeEventListener("drop", this.onDrop);
     this.panel.removeEventListener("dragend", this.onDragEnd);
     this.panel.removeEventListener("contextmenu", this.onContextMenu);
+    window.removeEventListener("keydown", this.onInventoryKeyDown, true);
+    document.querySelector("#inventory-close").removeEventListener("click", this.onCloseClick);
     this.slotsElement.replaceChildren();
+    this.inventoryHotbarElement.replaceChildren();
+    this.armorSlotsElement.replaceChildren();
     this.hotbar.replaceChildren();
   }
 
   render() {
     this.#renderHotbar();
     this.#renderItems();
+    this.#renderInventoryHotbar();
+    this.#renderArmorSlots();
     this.#renderCraftingGrid();
     this.#renderCraftOutput();
   }
@@ -533,14 +675,14 @@ export class InventoryManager {
     }
     this.hotbarButtons.length = 0;
     this.hotbar.replaceChildren();
-    const items = this.#getHotbarItems();
-    for (let slot = 0; slot < items.length; slot += 1) {
+    for (let slot = 0; slot < HOTBAR_SLOT_COUNT; slot += 1) {
       const button = document.createElement("button");
       button.className = "hotbar-slot";
       button.type = "button";
       button.setAttribute("aria-label", `Hotbar slot ${slot + 1}`);
       button.onSelect = () => this.selectSlot(slot);
       button.addEventListener("click", button.onSelect);
+      button.dataset.slot = String(slot);
       this.hotbar.append(button);
       this.hotbarButtons.push(button);
     }
@@ -549,39 +691,44 @@ export class InventoryManager {
   }
 
   #renderHotbar() {
-    const items = this.#getHotbarItems();
-    for (let slot = 0; slot < items.length; slot += 1) {
-      const item = items[slot];
+    for (let slot = 0; slot < HOTBAR_SLOT_COUNT; slot += 1) {
       const button = this.hotbarButtons[slot];
-      const count = this.gameMode === "creative" ? Infinity : this.countItem(item);
+      const stack = this.items[HOTBAR_START_INDEX + slot];
       button.classList.toggle("selected", slot === this.selectedSlot);
-      button.title = `${BLOCK_NAMES[item]}${count ? ` ×${count}` : ""}`;
+      button.classList.toggle("has-durability", stack?.durability !== undefined);
+      button.classList.toggle("enchanted-item", Boolean(stack?.enchantments?.length));
       button.replaceChildren();
-      const label = document.createElement("span");
-      label.className = "slot-name";
-      label.textContent = BLOCK_NAMES[item];
-      const icon = this.#createIsometricItem(item);
-      const amount = document.createElement("span");
-      amount.className = "slot-count";
-      amount.textContent = count === Infinity ? "∞" : count ? String(count) : "";
+      button.setAttribute("aria-label", `Hotbar slot ${slot + 1}${stack ? `, ${itemName(stack.item)}, ${stack.count}` : ", empty"}`);
+      button.title = stack ? `${itemName(stack.item)} ×${stack.count}` : "Empty hotbar slot";
+      if (stack) {
+        button.append(this.#createIsometricItem(stack.item));
+        if (stack.durability !== undefined) {
+          const track = document.createElement("span");
+          track.className = "durability-track";
+          const fill = document.createElement("span");
+          fill.className = "durability-fill";
+          fill.style.width = `${Math.max(0, stack.durability / stack.maxDurability) * 100}%`;
+          track.append(fill);
+          button.append(track);
+        }
+        if (stack.count > 1 && !isGear(stack.item)) {
+          const count = document.createElement("span");
+          count.className = "slot-count";
+          count.textContent = String(stack.count);
+          button.append(count);
+        }
+      }
       const key = document.createElement("span");
       key.className = "slot-key";
       key.textContent = String(slot + 1);
-      button.append(icon, label, amount, key);
+      button.append(key);
     }
-  }
 
-  #getHotbarItems() {
-    return this.gameMode === "creative"
-      ? Object.values(BLOCKS)
-        .filter((block) => block.id !== BlockType.AIR)
-        .map((block) => block.id)
-      : HOTBAR_ITEMS;
   }
 
   #renderItems() {
     this.slotsElement.replaceChildren();
-    for (let index = 0; index < this.items.length; index += 1) {
+    for (let index = 0; index < MAIN_INVENTORY_SLOT_COUNT; index += 1) {
       const slot = document.createElement("button");
       slot.type = "button";
       slot.className = "item-slot inventory-slot";
@@ -590,6 +737,30 @@ export class InventoryManager {
       slot.setAttribute("role", "gridcell");
       this.#renderStack(slot, this.items[index]);
       this.slotsElement.append(slot);
+    }
+  }
+
+  #renderInventoryHotbar() {
+    this.inventoryHotbarElement.replaceChildren();
+    for (let index = 0; index < HOTBAR_SLOT_COUNT; index += 1) {
+      const slot = document.createElement("button");
+      slot.type = "button";
+      slot.className = "item-slot inventory-hotbar-slot";
+      slot.dataset.area = "hotbar";
+      slot.dataset.slot = String(index);
+      slot.setAttribute("role", "gridcell");
+      slot.setAttribute("aria-label", `Hotbar slot ${index + 1}`);
+      this.#renderStack(slot, this.items[HOTBAR_START_INDEX + index]);
+      this.inventoryHotbarElement.append(slot);
+    }
+  }
+
+  #renderArmorSlots() {
+    for (const slot of this.armorSlotsElement.querySelectorAll("[data-armor-slot]")) {
+      const index = Number(slot.dataset.armorSlot);
+      slot.dataset.area = "armor";
+      slot.dataset.slot = String(index);
+      this.#renderStack(slot, this.armorItems[index]);
     }
   }
 
@@ -625,6 +796,7 @@ export class InventoryManager {
   #renderStack(slot, stack) {
     slot.replaceChildren();
     slot.classList.toggle("filled", Boolean(stack));
+    slot.classList.toggle("enchanted-item", Boolean(stack?.enchantments?.length));
     slot.classList.toggle(
       "tool-item",
       Boolean(stack && isGear(stack.item)),
@@ -650,11 +822,21 @@ export class InventoryManager {
     const name = itemName(stack.item);
     slot.setAttribute("aria-label", `${name}, ${stack.count}`);
     slot.title = isTool(stack.item)
-      ? `${name} — durability ${stack.durability}/${TOOL_DURABILITY[stack.item]}`
+      ? `${name} — durability ${stack.durability}/${stack.maxDurability}${stack.enchantments?.length ? ` — ${stack.enchantments.join(", ")}` : ""}`
       : isGear(stack.item)
         ? `${name}${stack.enchantments?.length ? ` — ${stack.enchantments.join(", ")}` : ""}${stack.item === this.selectedWeapon || stack.item === this.equippedArmor || stack.item === this.selectedMagicItem ? " — equipped" : ""}`
         : `${name} ×${stack.count}`;
     slot.append(this.#createIsometricItem(stack.item));
+    if (isTool(stack.item)) {
+      const track = document.createElement("span");
+      track.className = "durability-track inventory-durability";
+      track.setAttribute("aria-label", `Durability ${stack.durability} of ${stack.maxDurability}`);
+      const fill = document.createElement("span");
+      fill.className = "durability-fill";
+      fill.style.width = `${Math.max(0, stack.durability / stack.maxDurability) * 100}%`;
+      track.append(fill);
+      slot.append(track);
+    }
     if (stack.count > 1) {
       const count = document.createElement("span");
       count.className = "stack-count";
@@ -704,8 +886,21 @@ export class InventoryManager {
   #getTextureUrl(texture) {
     const cached = this.textureUrls.get(texture);
     if (cached) return cached;
-    if (typeof texture.image?.toDataURL !== "function") return null;
-    const url = texture.image.toDataURL();
+    if (typeof texture.image?.toDataURL === "function") {
+      const url = texture.image.toDataURL();
+      this.textureUrls.set(texture, url);
+      return url;
+    }
+    const { data, width, height } = texture.image ?? {};
+    if (!data || !width || !height) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    const image = context.createImageData(width, height);
+    image.data.set(data);
+    context.putImageData(image, 0, 0);
+    const url = canvas.toDataURL();
     this.textureUrls.set(texture, url);
     return url;
   }
@@ -726,7 +921,7 @@ export class InventoryManager {
     const index = Number(slot.dataset.slot);
     const stack = this.#getStack(area, index);
     if (
-      area === "inventory" &&
+      (area === "inventory" || area === "hotbar") &&
       !this.cursorStack &&
       TAMING_ITEMS.has(stack?.item)
     ) {
@@ -735,15 +930,19 @@ export class InventoryManager {
       );
       return;
     }
-    if (area === "inventory" && !this.cursorStack && isGear(stack?.item)) {
+    if (
+      (area === "inventory" || area === "hotbar") &&
+      !this.cursorStack &&
+      isGear(stack?.item)
+    ) {
       if (isTool(stack.item) && !Object.hasOwn(WEAPON_DAMAGE, stack.item)) {
         this.selectTool(stack.item === this.selectedTool ? null : stack.item);
       } else if (Object.hasOwn(WEAPON_DAMAGE, stack.item)) {
         this.selectedWeapon = stack.item === this.selectedWeapon ? null : stack.item;
+        this.selectedEnchantableItem = this.selectedWeapon ?? this.selectedTool;
         this.render();
       } else if (ARMOR_ITEMS.has(stack.item)) {
-        this.equippedArmor = stack.item === this.equippedArmor ? null : stack.item;
-        this.render();
+        this.#equipArmorFromInventory(area, index);
       } else if (MAGIC_ITEMS.has(stack.item)) {
         this.selectedMagicItem = stack.item === this.selectedMagicItem ? null : stack.item;
         this.render();
@@ -790,21 +989,36 @@ export class InventoryManager {
   }
 
   #getStack(area, index) {
-    return area === "inventory" ? this.items[index] : this.craftingItems[index];
+    if (area === "inventory") return this.items[index];
+    if (area === "hotbar") return this.items[HOTBAR_START_INDEX + index];
+    if (area === "armor") return this.armorItems[index];
+    if (area === "crafting") return this.craftingItems[index];
+    return null;
   }
 
   #getSelectedWeaponStack() {
     const weapon = this.getSelectedWeapon();
-    return weapon ? this.items.find((stack) => stack?.item === weapon) ?? null : null;
+    if (!weapon) return null;
+    const hotbarStack = this.items[HOTBAR_START_INDEX + this.selectedSlot];
+    return hotbarStack?.item === weapon
+      ? hotbarStack
+      : this.items.find((stack) => stack?.item === weapon) ?? null;
   }
 
   #setStack(area, index, stack) {
     if (area === "inventory") this.items[index] = stack;
-    else this.craftingItems[index] = stack;
+    else if (area === "hotbar") this.items[HOTBAR_START_INDEX + index] = stack;
+    else if (area === "armor") this.armorItems[index] = stack;
+    else if (area === "crafting") this.craftingItems[index] = stack;
+    if (area === "armor") this.#syncEquippedArmor();
   }
 
   #interactStack(area, index, rightClick = false) {
     const slotStack = this.#getStack(area, index);
+    if (
+      this.cursorStack &&
+      !this.#canPlaceInArea(area, index, this.cursorStack.item)
+    ) return;
     if (rightClick) {
       if (!this.cursorStack && slotStack) {
         const picked = Math.ceil(slotStack.count / 2);
@@ -863,6 +1077,11 @@ export class InventoryManager {
     const sourceStack = this.#getStack(source.area, source.index);
     const destinationStack = this.#getStack(destination.area, destination.index);
     if (!sourceStack) return;
+    if (!this.#canPlaceInArea(destination.area, destination.index, sourceStack.item)) return;
+    if (
+      destinationStack &&
+      !this.#canPlaceInArea(source.area, source.index, destinationStack.item)
+    ) return;
     if (
       !isGear(sourceStack.item) &&
       destinationStack?.item === sourceStack.item &&
@@ -892,16 +1111,73 @@ export class InventoryManager {
     return false;
   }
 
+  #canPlaceInArea(area, index, item) {
+    if (area !== "armor") return true;
+    return armorSlotFor(item) === index;
+  }
+
+  #equipArmorFromInventory(area, index) {
+    const stack = this.#getStack(area, index);
+    const armorIndex = armorSlotFor(stack?.item);
+    if (!stack || armorIndex < 0) return false;
+    const equipped = this.armorItems[armorIndex];
+    this.#setStack(area, index, equipped);
+    this.armorItems[armorIndex] = stack;
+    this.#syncEquippedArmor();
+    this.render();
+    return true;
+  }
+
+  #syncEquippedArmor() {
+    this.equippedArmor = this.armorItems[1]?.item ?? null;
+  }
+
+  #handleInventoryKeyDown(event) {
+    if (event.isComposing || event.repeat) return;
+    if (event.code === "Escape" && !this.panel.hidden) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.setVisible(false);
+      return;
+    }
+    if (event.code !== "KeyE") return;
+    if (
+      document.querySelector("#pause-menu")?.hidden === false ||
+      document.querySelector("#main-menu")?.hidden === false ||
+      document.querySelector("#char-creation-screen")?.hidden === false ||
+      document.querySelector("#chest-menu")?.hidden === false
+    ) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    this.toggle();
+  }
+
+  #restorePointerLock() {
+    if (!this.wasPointerLocked) return;
+    this.wasPointerLocked = false;
+    try {
+      const request = this.canvas.requestPointerLock();
+      request?.catch((error) => {
+        this.messageElement.textContent = "Could not relock the game mouse.";
+        console.error("Could not relock pointer after closing inventory:", error);
+      });
+    } catch (error) {
+      this.messageElement.textContent = "Could not relock the game mouse.";
+      console.error("Could not relock pointer after closing inventory:", error);
+    }
+  }
+
   #matchShapedRecipe(pattern) {
     const height = pattern.length;
     const width = Math.max(...pattern.map((row) => row.length));
+    if (height > 2 || width > 2) return null;
     for (const mirrored of [false, true]) {
-      for (let offsetY = 0; offsetY <= 3 - height; offsetY += 1) {
-        for (let offsetX = 0; offsetX <= 3 - width; offsetX += 1) {
+      for (let offsetY = 0; offsetY <= 2 - height; offsetY += 1) {
+        for (let offsetX = 0; offsetX <= 2 - width; offsetX += 1) {
           const consumption = [];
           let matches = true;
-          for (let y = 0; y < 3 && matches; y += 1) {
-            for (let x = 0; x < 3; x += 1) {
+          for (let y = 0; y < 2 && matches; y += 1) {
+            for (let x = 0; x < 2; x += 1) {
               const patternY = y - offsetY;
               const patternX = x - offsetX;
               const inside = patternY >= 0 && patternY < height &&
@@ -909,7 +1185,7 @@ export class InventoryManager {
               const expected = inside
                 ? pattern[patternY][mirrored ? width - 1 - patternX : patternX] ?? null
                 : null;
-              const stack = this.craftingItems[y * 3 + x];
+              const stack = this.craftingItems[y * 2 + x];
               if (!expected && stack) {
                 matches = false;
                 break;
@@ -918,7 +1194,7 @@ export class InventoryManager {
                 matches = false;
                 break;
               }
-              if (expected) consumption.push({ index: y * 3 + x, amount: 1 });
+              if (expected) consumption.push({ index: y * 2 + x, amount: 1 });
             }
           }
           if (matches) return consumption;
