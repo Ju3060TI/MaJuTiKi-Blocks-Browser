@@ -40,7 +40,10 @@ const existingBlocks = {
     "wood",
     "wood",
   ], 2),
-  LEAVES: defineBlock(5, "Leaves", true, false, "leaves", 0.2),
+  LEAVES: defineBlock(5, "Leaves", true, false, "leaves", 0.2, 0, {
+    transparent: true,
+    alphaTest: 0.5,
+  }),
   SAND: defineBlock(6, "Sand", true, false, "sand", 0.5),
   SNOW: defineBlock(7, "Snow", true, false, "snow", 0.2),
   COAL_ORE: defineBlock(8, "Coal Ore", true, false, "coalOre", 3, 1),
@@ -96,12 +99,30 @@ const additionalBlocks = [
   ["JUNGLE_LOG", "Jungle Log", true, "jungleLog", 2, 0],
   ["ACACIA_LOG", "Acacia Log", true, "acaciaLog", 2, 0],
   ["DARK_OAK_LOG", "Dark Oak Log", true, "darkOakLog", 2, 0],
-  ["OAK_LEAVES", "Oak Leaves", true, "oakLeaves", 0.2, 0],
-  ["BIRCH_LEAVES", "Birch Leaves", true, "birchLeaves", 0.2, 0],
-  ["SPRUCE_LEAVES", "Spruce Leaves", true, "spruceLeaves", 0.2, 0],
-  ["JUNGLE_LEAVES", "Jungle Leaves", true, "jungleLeaves", 0.2, 0],
-  ["ACACIA_LEAVES", "Acacia Leaves", true, "acaciaLeaves", 0.2, 0],
-  ["DARK_OAK_LEAVES", "Dark Oak Leaves", true, "darkOakLeaves", 0.2, 0],
+  ["OAK_LEAVES", "Oak Leaves", true, "oakLeaves", 0.2, 0, {
+    transparent: true,
+    alphaTest: 0.5,
+  }],
+  ["BIRCH_LEAVES", "Birch Leaves", true, "birchLeaves", 0.2, 0, {
+    transparent: true,
+    alphaTest: 0.5,
+  }],
+  ["SPRUCE_LEAVES", "Spruce Leaves", true, "spruceLeaves", 0.2, 0, {
+    transparent: true,
+    alphaTest: 0.5,
+  }],
+  ["JUNGLE_LEAVES", "Jungle Leaves", true, "jungleLeaves", 0.2, 0, {
+    transparent: true,
+    alphaTest: 0.5,
+  }],
+  ["ACACIA_LEAVES", "Acacia Leaves", true, "acaciaLeaves", 0.2, 0, {
+    transparent: true,
+    alphaTest: 0.5,
+  }],
+  ["DARK_OAK_LEAVES", "Dark Oak Leaves", true, "darkOakLeaves", 0.2, 0, {
+    transparent: true,
+    alphaTest: 0.5,
+  }],
   ["OAK_PLANKS", "Oak Planks", true, "oakPlanks", 2, 0],
   ["BIRCH_PLANKS", "Birch Planks", true, "birchPlanks", 2, 0],
   ["SPRUCE_PLANKS", "Spruce Planks", true, "sprucePlanks", 2, 0],

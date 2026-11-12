@@ -1,6 +1,38 @@
-import { BoxGeometry, InstancedMesh, Object3D } from "three";
+import {
+  BoxGeometry,
+  BufferGeometry,
+  Float32BufferAttribute,
+  InstancedMesh,
+  Mesh,
+  Object3D,
+} from "three";
 import { BLOCK_COUNT, BLOCKS } from "./blocks.js";
 import { CHUNK_SIZE, getBlockIndex } from "./WorldGenerator.js";
+
+const BLOCKS_BY_ID = Array(BLOCK_COUNT);
+for (const block of Object.values(BLOCKS)) BLOCKS_BY_ID[block.id] = block;
+const TRANSPARENT_BLOCKS = Object.values(BLOCKS).filter(
+  (block) => block.materialOptions.transparent,
+);
+const TRANSPARENT_BLOCK_IDS = new Set(TRANSPARENT_BLOCKS.map((block) => block.id));
+
+const FACE_DIRECTIONS = [
+  [1, 0, 0],
+  [-1, 0, 0],
+  [0, 1, 0],
+  [0, -1, 0],
+  [0, 0, 1],
+  [0, 0, -1],
+];
+const FACE_CORNERS = [
+  [[1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1]],
+  [[0, 0, 0], [0, 0, 1], [0, 1, 1], [0, 1, 0]],
+  [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]],
+  [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]],
+  [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]],
+  [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]],
+];
+const FACE_UVS = [[0, 0], [1, 0], [1, 1], [0, 1]];
 
 export class Chunk {
   constructor(world, chunkX, chunkY, chunkZ, blocks) {
@@ -53,6 +85,12 @@ export class Chunk {
   rebuild() {
     this.disposeMeshes();
     const positions = Array.from({ length: BLOCK_COUNT }, () => []);
+    const transparentFaces = new Map(
+      TRANSPARENT_BLOCKS.map((block) => [
+        block.id,
+        Array.from({ length: 6 }, () => []),
+      ]),
+    );
     const worldXStart = this.chunkX * CHUNK_SIZE;
     const worldYStart = this.chunkY * CHUNK_SIZE;
     const worldZStart = this.chunkZ * CHUNK_SIZE;
@@ -63,7 +101,18 @@ export class Chunk {
           const type = this.getBlock(x, y, z);
           if (type === BLOCKS.AIR.id) continue;
 
-          if (this.#hasAirNeighbor(x, y, z, worldXStart, worldYStart, worldZStart)) {
+          if (TRANSPARENT_BLOCK_IDS.has(type)) {
+            this.#collectTransparentFaces(
+              type,
+              x,
+              y,
+              z,
+              worldXStart,
+              worldYStart,
+              worldZStart,
+              transparentFaces.get(type),
+            );
+          } else if (this.#hasVisibleNeighbor(x, y, z, worldXStart, worldYStart, worldZStart)) {
             positions[type].push([x + worldXStart, y + worldYStart, z + worldZStart]);
           }
         }
@@ -98,12 +147,28 @@ export class Chunk {
       this.world.scene.add(mesh);
       this.meshes.push(mesh);
     }
+
+    for (const block of TRANSPARENT_BLOCKS) {
+      const faces = transparentFaces.get(block.id);
+      if (faces.every((quads) => quads.length === 0)) continue;
+
+      const geometry = this.#createTransparentGeometry(faces);
+      const mesh = new Mesh(geometry, this.world.materials[block.id]);
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.userData.chunk = this;
+      mesh.userData.blockType = block.id;
+      mesh.userData.ownsGeometry = true;
+      this.world.scene.add(mesh);
+      this.meshes.push(mesh);
+    }
   }
 
   disposeMeshes() {
     for (const mesh of this.meshes) {
       this.world.scene.remove(mesh);
-      mesh.dispose();
+      if (mesh.userData.ownsGeometry) mesh.geometry.dispose();
+      mesh.dispose?.();
     }
     this.meshes.length = 0;
   }
@@ -115,41 +180,117 @@ export class Chunk {
     this.blocks = null;
   }
 
-  #hasAirNeighbor(x, y, z, worldXStart, worldYStart, worldZStart) {
-    const west =
-      x > 0
-        ? this.getBlock(x - 1, y, z)
-        : this.world.getBlockAt(worldXStart - 1, worldYStart + y, worldZStart + z);
-    if (west === BLOCKS.AIR.id) return true;
+  #getNeighborType(x, y, z, faceIndex, worldXStart, worldYStart, worldZStart) {
+    const [dx, dy, dz] = FACE_DIRECTIONS[faceIndex];
+    const neighborX = x + dx;
+    const neighborY = y + dy;
+    const neighborZ = z + dz;
+    if (
+      neighborX >= 0 &&
+      neighborX < CHUNK_SIZE &&
+      neighborY >= 0 &&
+      neighborY < CHUNK_SIZE &&
+      neighborZ >= 0 &&
+      neighborZ < CHUNK_SIZE
+    ) {
+      return this.getBlock(neighborX, neighborY, neighborZ);
+    }
+    return this.world.getBlockAt(
+      worldXStart + neighborX,
+      worldYStart + neighborY,
+      worldZStart + neighborZ,
+    );
+  }
 
-    const east =
-      x < CHUNK_SIZE - 1
-        ? this.getBlock(x + 1, y, z)
-        : this.world.getBlockAt(worldXStart + CHUNK_SIZE, worldYStart + y, worldZStart + z);
-    if (east === BLOCKS.AIR.id) return true;
+  #isFaceVisible(type, neighborType) {
+    const currentBlock = BLOCKS_BY_ID[type];
+    const neighborBlock = BLOCKS_BY_ID[neighborType];
+    if (!neighborBlock) return true;
 
-    const below =
-      y > 0
-        ? this.getBlock(x, y - 1, z)
-        : this.world.getBlockAt(worldXStart + x, worldYStart - 1, worldZStart + z);
-    if (below === BLOCKS.AIR.id) return true;
+    const currentTransparent = currentBlock?.materialOptions.transparent === true;
+    const neighborTransparent = neighborBlock.materialOptions.transparent === true;
+    if (currentTransparent && neighborTransparent) return false;
+    if (!neighborBlock.isSolid) return true;
+    return neighborTransparent;
+  }
 
-    const above =
-      y < CHUNK_SIZE - 1
-        ? this.getBlock(x, y + 1, z)
-        : this.world.getBlockAt(worldXStart + x, worldYStart + CHUNK_SIZE, worldZStart + z);
-    if (above === BLOCKS.AIR.id) return true;
+  #hasVisibleNeighbor(x, y, z, worldXStart, worldYStart, worldZStart) {
+    return FACE_DIRECTIONS.some((_, faceIndex) =>
+      this.#isFaceVisible(
+        this.getBlock(x, y, z),
+        this.#getNeighborType(x, y, z, faceIndex, worldXStart, worldYStart, worldZStart),
+      ),
+    );
+  }
 
-    const north =
-      z > 0
-        ? this.getBlock(x, y, z - 1)
-        : this.world.getBlockAt(worldXStart + x, worldYStart + y, worldZStart - 1);
-    if (north === BLOCKS.AIR.id) return true;
+  #collectTransparentFaces(type, x, y, z, worldXStart, worldYStart, worldZStart, faces) {
+    const aboveType = this.#getNeighborType(x, y, z, 2, worldXStart, worldYStart, worldZStart);
+    const isWater = type === BLOCKS.WATER.id;
+    const blockX = x + worldXStart;
+    const blockY = y + worldYStart;
+    const blockZ = z + worldZStart;
 
-    const south =
-      z < CHUNK_SIZE - 1
-        ? this.getBlock(x, y, z + 1)
-        : this.world.getBlockAt(worldXStart + x, worldYStart + y, worldZStart + CHUNK_SIZE);
-    return south === BLOCKS.AIR.id;
+    for (let faceIndex = 0; faceIndex < FACE_DIRECTIONS.length; faceIndex += 1) {
+      const neighborType = this.#getNeighborType(
+        x,
+        y,
+        z,
+        faceIndex,
+        worldXStart,
+        worldYStart,
+        worldZStart,
+      );
+      if (!this.#isFaceVisible(type, neighborType)) continue;
+
+      const sideTop = isWater && aboveType !== BLOCKS.WATER.id ? 0.9 : 1;
+      const corners = FACE_CORNERS[faceIndex].map(([cornerX, cornerY, cornerZ]) => {
+        let localY = cornerY;
+        if (isWater && (faceIndex === 2 || (faceIndex !== 3 && cornerY === 1))) {
+          localY = faceIndex === 2 ? 0.9 : sideTop;
+        }
+        return [
+          blockX + cornerX,
+          blockY + localY,
+          blockZ + cornerZ,
+        ];
+      });
+      faces[faceIndex].push(corners);
+    }
+  }
+
+  #createTransparentGeometry(faces) {
+    const geometry = new BufferGeometry();
+    const positions = [];
+    const uvs = [];
+    const indices = [];
+
+    for (let faceIndex = 0; faceIndex < faces.length; faceIndex += 1) {
+      const groupStart = indices.length;
+      for (const corners of faces[faceIndex]) {
+        const vertexStart = positions.length / 3;
+        for (let cornerIndex = 0; cornerIndex < corners.length; cornerIndex += 1) {
+          positions.push(...corners[cornerIndex]);
+          uvs.push(...FACE_UVS[cornerIndex]);
+        }
+        indices.push(
+          vertexStart,
+          vertexStart + 1,
+          vertexStart + 2,
+          vertexStart,
+          vertexStart + 2,
+          vertexStart + 3,
+        );
+      }
+      if (indices.length > groupStart) {
+        geometry.addGroup(groupStart, indices.length - groupStart, faceIndex);
+      }
+    }
+
+    geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+    geometry.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingSphere();
+    return geometry;
   }
 }

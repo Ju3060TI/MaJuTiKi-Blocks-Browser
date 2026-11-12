@@ -20,6 +20,10 @@ body.menu-open {
   cursor: default;
 }
 
+body.game-paused {
+  cursor: default;
+}
+
 #main-menu,
 #loading-screen,
 .character-creation {
@@ -43,6 +47,47 @@ body.menu-open {
 
 #main-menu[hidden] {
   display: none;
+}
+
+#pause-menu {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: auto;
+  backdrop-filter: blur(7px) saturate(0.7);
+  background:
+    linear-gradient(180deg, rgb(9 17 31 / 74%), rgb(8 12 19 / 90%)),
+    radial-gradient(ellipse at 50% 38%, #52634d 0%, #293842 54%, #111923 100%);
+  color: #fff;
+  text-align: center;
+}
+
+#pause-menu[hidden] {
+  display: none;
+}
+
+.pause-panel {
+  width: min(460px, 100%);
+  padding: 32px;
+  border: 2px solid rgb(255 255 255 / 28%);
+  background: rgb(17 24 31 / 82%);
+  box-shadow: 0 20px 70px rgb(0 0 0 / 55%), inset 0 0 0 5px rgb(0 0 0 / 16%);
+}
+
+.pause-panel h1 {
+  margin: 10px 0 0;
+  color: #f4eed7;
+  font: 900 clamp(38px, 8vw, 58px) "Courier New", monospace;
+  text-shadow: 3px 4px 0 #536d46, 6px 7px 0 #171d1b;
+}
+
+.pause-buttons {
+  display: grid;
+  gap: 10px;
+  margin-top: 28px;
 }
 
 .menu-buttons[hidden] {
@@ -401,6 +446,14 @@ body.menu-open #hotbar,
 body.menu-open #health,
 body.menu-open #instructions,
 body.menu-open #status {
+  visibility: hidden;
+}
+
+body.game-paused #crosshair,
+body.game-paused #hotbar,
+body.game-paused #health,
+body.game-paused #instructions,
+body.game-paused #status {
   visibility: hidden;
 }
 

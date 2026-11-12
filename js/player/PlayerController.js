@@ -11,6 +11,8 @@ const EYE_HEIGHT = 1.62;
 const MOVE_SPEED = 5;
 const JUMP_SPEED = 8;
 const GRAVITY = 22;
+const SWIM_SPEED = 3.5;
+const WATER_GRAVITY_SCALE = 0.18;
 const COLLISION_EPSILON = 1e-5;
 const BASE_MAX_HEALTH = 20;
 const DAMAGE_COOLDOWN = 1;
@@ -551,12 +553,24 @@ export class PlayerController {
   }
 
   #applyGravity(delta) {
-    if (this.keys.has("Space") && this.grounded && this.controls.isLocked) {
-      this.velocityY = JUMP_SPEED;
+    if (this.#isInWater()) {
       this.grounded = false;
+      if (this.keys.has("Space") && this.controls.isLocked) {
+        this.velocityY = Math.min(SWIM_SPEED, this.velocityY + GRAVITY * delta);
+      } else {
+        this.velocityY = Math.max(
+          -SWIM_SPEED,
+          this.velocityY - GRAVITY * WATER_GRAVITY_SCALE * delta,
+        );
+      }
+    } else {
+      if (this.keys.has("Space") && this.grounded && this.controls.isLocked) {
+        this.velocityY = JUMP_SPEED;
+        this.grounded = false;
+      }
+      this.velocityY -= GRAVITY * delta;
     }
 
-    this.velocityY -= GRAVITY * delta;
     const nextY = this.position.y + this.velocityY * delta;
     if (!this.#collidesAt(this.position.x, nextY, this.position.z)) {
       this.position.y = nextY;
@@ -591,7 +605,26 @@ export class PlayerController {
     for (let blockX = minX; blockX <= maxX; blockX += 1) {
       for (let blockY = minY; blockY <= maxY; blockY += 1) {
         for (let blockZ = minZ; blockZ <= maxZ; blockZ += 1) {
-          if (this.world.getBlockAt(blockX, blockY, blockZ) !== 0) return true;
+          if (this.world.isSolidAt(blockX, blockY, blockZ)) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  #isInWater() {
+    const minX = Math.floor(this.position.x - PLAYER_RADIUS + COLLISION_EPSILON);
+    const maxX = Math.floor(this.position.x + PLAYER_RADIUS - COLLISION_EPSILON);
+    const minY = Math.floor(this.position.y + COLLISION_EPSILON);
+    const maxY = Math.floor(this.position.y + PLAYER_HEIGHT - COLLISION_EPSILON);
+    const minZ = Math.floor(this.position.z - PLAYER_RADIUS + COLLISION_EPSILON);
+    const maxZ = Math.floor(this.position.z + PLAYER_RADIUS - COLLISION_EPSILON);
+
+    for (let x = minX; x <= maxX; x += 1) {
+      for (let y = minY; y <= maxY; y += 1) {
+        for (let z = minZ; z <= maxZ; z += 1) {
+          const type = this.world.getBlockAt(x, y, z);
+          if (type === BlockType.WATER || type === BlockType.OIL) return true;
         }
       }
     }
@@ -608,7 +641,7 @@ export class PlayerController {
     for (let x = minX; x <= maxX; x += 1) {
       for (let z = minZ; z <= maxZ; z += 1) {
         for (let y = Math.floor(candidateY); y <= Math.floor(this.position.y); y += 1) {
-          if (this.world.getBlockAt(x, y, z) !== 0) highestTop = Math.max(highestTop, y + 1);
+          if (this.world.isSolidAt(x, y, z)) highestTop = Math.max(highestTop, y + 1);
         }
       }
     }
@@ -627,7 +660,7 @@ export class PlayerController {
     for (let x = minX; x <= maxX; x += 1) {
       for (let z = minZ; z <= maxZ; z += 1) {
         for (let y = minY; y <= maxY; y += 1) {
-          if (this.world.getBlockAt(x, y, z) !== 0) lowestBottom = Math.min(lowestBottom, y);
+          if (this.world.isSolidAt(x, y, z)) lowestBottom = Math.min(lowestBottom, y);
         }
       }
     }

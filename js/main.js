@@ -21,6 +21,41 @@ const canvas = document.querySelector("#game");
 const instructions = document.querySelector("#instructions");
 const scene = new Scene();
 scene.fog = new Fog(0x9bd9ff, 42, 116);
+const WORLD_SAVE_KEY = "majutiki-world-save";
+
+function loadSavedWorld() {
+  let serialized;
+  try {
+    serialized = localStorage.getItem(WORLD_SAVE_KEY);
+  } catch (error) {
+    console.error("Could not access saved-world storage:", error);
+    return null;
+  }
+  if (!serialized) return null;
+  try {
+    const savedWorld = JSON.parse(serialized);
+    if (
+      !Number.isInteger(savedWorld?.seed) ||
+      !Array.isArray(savedWorld.blockEdits) ||
+      !savedWorld.blockEdits.every(([key, entries]) =>
+        typeof key === "string" &&
+        Array.isArray(entries) &&
+        entries.every(([index, type]) =>
+          Number.isInteger(index) && index >= 0 &&
+          Number.isInteger(type) && type >= 0,
+        ),
+      )
+    ) {
+      throw new TypeError("Saved world data is invalid.");
+    }
+    return savedWorld;
+  } catch (error) {
+    console.error("Could not load the saved world:", error);
+    return null;
+  }
+}
+
+const savedWorld = loadSavedWorld();
 
 const camera = new PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 180);
 const renderer = new WebGLRenderer({ canvas, antialias: false });
@@ -31,7 +66,11 @@ renderer.shadowMap.enabled = true;
 const ambientLight = new AmbientLight(0xffffff, 1);
 scene.add(ambientLight);
 
-const world = new World(scene, new WorldGenerator());
+const world = new World(
+  scene,
+  new WorldGenerator(savedWorld?.seed),
+  savedWorld?.blockEdits,
+);
 const inventory = new InventoryManager(world.textures);
 const player = new PlayerController(camera, renderer.domElement, world, world.getSpawnPoint(), inventory);
 const entities = new EntityManager(scene, world, inventory);
@@ -42,6 +81,118 @@ const clock = new Clock();
 const raycaster = new Raycaster();
 const screenCenter = new Vector2(0, 0);
 raycaster.far = 6;
+const pauseMenu = document.querySelector("#pause-menu");
+const resumeButton = document.querySelector("#resume-button");
+const pauseSettingsButton = document.querySelector("#pause-settings-button");
+const multiplayerButton = document.querySelector("#multiplayer-button");
+const saveQuitButton = document.querySelector("#save-quit-button");
+const quitTitleButton = document.querySelector("#quit-title-button");
+const pauseMessage = document.querySelector("#pause-message");
+if (
+  !pauseMenu ||
+  !resumeButton ||
+  !pauseSettingsButton ||
+  !multiplayerButton ||
+  !saveQuitButton ||
+  !quitTitleButton ||
+  !pauseMessage
+) {
+  throw new Error("Pause menu markup is incomplete.");
+}
+
+let isPaused = false;
+let resumePending = false;
+let pauseSettingsOpen = false;
+let multiplayerTimer = null;
+const multiplayerButtonLabel = multiplayerButton.textContent;
+
+function showPauseMenu() {
+  if (isPaused) return;
+  isPaused = true;
+  resumePending = false;
+  pauseMenu.hidden = false;
+  document.body.classList.add("game-paused");
+  player.controls.unlock();
+  resumeButton.focus();
+}
+
+function resumeGame() {
+  if (!isPaused) return;
+  pauseMessage.textContent = "";
+  resumePending = true;
+  try {
+    player.controls.lock();
+  } catch (error) {
+    resumePending = false;
+    pauseMessage.textContent = "Maussteuerung konnte nicht aktiviert werden.";
+    console.error("Could not resume pointer lock:", error);
+    return;
+  }
+  isPaused = false;
+  pauseMenu.hidden = true;
+  document.body.classList.remove("game-paused");
+}
+
+function returnToTitle(clearSave) {
+  if (clearSave) {
+    try {
+      localStorage.removeItem(WORLD_SAVE_KEY);
+    } catch (error) {
+      pauseMessage.textContent = "Die gespeicherte Welt konnte nicht gelöscht werden.";
+      console.error("Could not clear the saved world:", error);
+      return;
+    }
+  }
+  window.location.reload();
+}
+
+resumeButton.addEventListener("click", resumeGame);
+pauseSettingsButton.addEventListener("click", () => {
+  pauseSettingsOpen = true;
+  pauseMenu.hidden = true;
+  mainMenu.element.hidden = false;
+  mainMenu.menuButtons.hidden = true;
+  mainMenu.settingsMenu.hidden = false;
+  mainMenu.renderDistanceSlider.focus();
+});
+mainMenu.settingsBackButton.addEventListener("click", () => {
+  if (!pauseSettingsOpen) return;
+  pauseSettingsOpen = false;
+  mainMenu.element.hidden = true;
+  pauseMenu.hidden = false;
+  resumeButton.focus();
+});
+multiplayerButton.addEventListener("click", () => {
+  clearTimeout(multiplayerTimer);
+  multiplayerButton.textContent = "Aktuell in Arbeit...";
+  multiplayerButton.disabled = true;
+  multiplayerTimer = window.setTimeout(() => {
+    multiplayerButton.textContent = multiplayerButtonLabel;
+    multiplayerButton.disabled = false;
+    multiplayerTimer = null;
+  }, 2000);
+});
+saveQuitButton.addEventListener("click", () => {
+  try {
+    world.saveToStorage(WORLD_SAVE_KEY);
+    returnToTitle(false);
+  } catch (error) {
+    pauseMessage.textContent = "Speichern fehlgeschlagen. Prüfe den verfügbaren Speicherplatz.";
+    console.error("Could not save the world:", error);
+  }
+});
+quitTitleButton.addEventListener("click", () => returnToTitle(true));
+document.addEventListener("pointerlockerror", () => {
+  if (!resumePending) return;
+  resumePending = false;
+  isPaused = true;
+  pauseMenu.hidden = false;
+  document.body.classList.add("game-paused");
+  pauseMessage.textContent = "Maussteuerung blockiert. Bitte erneut versuchen.";
+});
+player.controls.addEventListener("lock", () => {
+  if (resumePending) resumePending = false;
+});
 
 function resize() {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -51,6 +202,14 @@ function resize() {
 window.addEventListener("resize", resize);
 
 window.addEventListener("keydown", (event) => {
+  if (event.code === "Escape") {
+    if (player.controls.isLocked) {
+      event.preventDefault();
+      showPauseMenu();
+    }
+    return;
+  }
+  if (isPaused) return;
   if (event.code === "KeyE" && !event.repeat) {
     inventory.toggle();
     if (!inventory.panel.hidden) player.controls.unlock();
@@ -146,14 +305,17 @@ player.controls.addEventListener("unlock", () => {
 
 function animate() {
   const delta = clock.getDelta();
-  player.update(delta);
-  sky.update(delta, player.position);
-  const isDay = Math.sin(sky.time * Math.PI * 2 - Math.PI / 2) > 0;
-  entities.update(delta, player, isDay);
+  if (!isPaused) {
+    player.update(delta);
+    sky.update(delta, player.position);
+    const isDay = Math.sin(sky.time * Math.PI * 2 - Math.PI / 2) > 0;
+    entities.update(delta, player, isDay);
+  }
   renderer.render(scene, camera);
 }
 
 window.addEventListener("pagehide", () => {
+  clearTimeout(multiplayerTimer);
   renderer.setAnimationLoop(null);
   mainMenu.dispose();
   player.dispose();

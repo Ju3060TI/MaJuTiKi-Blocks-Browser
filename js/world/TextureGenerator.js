@@ -1,7 +1,9 @@
-import { CanvasTexture, NearestFilter, SRGBColorSpace } from "three";
+import { CanvasTexture, NearestFilter, RepeatWrapping, SRGBColorSpace } from "three";
 import { BLOCK_COUNT, BLOCKS } from "./blocks.js";
 
 const TEXTURE_SIZE = 16;
+const FACE_BRIGHTNESS = [0.8, 0.8, 1, 0.6, 0.8, 0.8];
+const shadedTextureCache = new WeakMap();
 
 function createTexture(draw) {
   const canvas = document.createElement("canvas");
@@ -15,6 +17,39 @@ function createTexture(draw) {
   texture.minFilter = NearestFilter;
   texture.colorSpace = SRGBColorSpace;
   return texture;
+}
+
+function shadeTexture(texture, brightness) {
+  if (brightness === 1) return texture;
+
+  let variants = shadedTextureCache.get(texture);
+  if (!variants) {
+    variants = new Map();
+    shadedTextureCache.set(texture, variants);
+  }
+  if (variants.has(brightness)) return variants.get(brightness);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = TEXTURE_SIZE;
+  canvas.height = TEXTURE_SIZE;
+  const context = canvas.getContext("2d");
+  context.drawImage(texture.image, 0, 0);
+  const image = context.getImageData(0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
+  for (let index = 0; index < image.data.length; index += 4) {
+    image.data[index] *= brightness;
+    image.data[index + 1] *= brightness;
+    image.data[index + 2] *= brightness;
+  }
+  context.putImageData(image, 0, 0);
+
+  const shadedTexture = new CanvasTexture(canvas);
+  shadedTexture.magFilter = NearestFilter;
+  shadedTexture.minFilter = NearestFilter;
+  shadedTexture.colorSpace = SRGBColorSpace;
+  shadedTexture.wrapS = texture.wrapS;
+  shadedTexture.wrapT = texture.wrapT;
+  variants.set(brightness, shadedTexture);
+  return shadedTexture;
 }
 
 export function drawTexture(baseColor, noiseColor, pattern = {}) {
@@ -54,20 +89,13 @@ export function drawTexture(baseColor, noiseColor, pattern = {}) {
           );
         }
         break;
-      case "wood":
       case "planks":
         context.lineWidth = 1;
         for (let line = 0; line < 4; line += 1) {
-          const offset = Math.floor(random() * TEXTURE_SIZE);
+          const y = line * 4 + 2;
           context.beginPath();
-          if (kind === "wood") {
-            context.moveTo(offset, 0);
-            context.lineTo(offset + (random() - 0.5) * 3, TEXTURE_SIZE);
-          } else {
-            const y = line * 4 + 2;
-            context.moveTo(0, y);
-            context.lineTo(TEXTURE_SIZE, y);
-          }
+          context.moveTo(0, y);
+          context.lineTo(TEXTURE_SIZE, y);
           context.stroke();
         }
         break;
@@ -91,10 +119,28 @@ export function drawTexture(baseColor, noiseColor, pattern = {}) {
         }
         break;
       case "cobble":
-        for (let index = 0; index < 12; index += 1) {
-          const x = Math.floor(random() * 14);
-          const y = Math.floor(random() * 14);
-          context.fillRect(x, y, 2 + Math.floor(random() * 3), 2 + Math.floor(random() * 3));
+        context.lineWidth = 1;
+        context.lineJoin = "round";
+        for (let index = 0; index < 8; index += 1) {
+          const centerX = 1 + random() * 14;
+          const centerY = 1 + random() * 14;
+          const radiusX = 2 + random() * 2.5;
+          const radiusY = 2 + random() * 2.5;
+          const points = 5 + Math.floor(random() * 3);
+          context.beginPath();
+          for (let point = 0; point < points; point += 1) {
+            const angle = (point / points) * Math.PI * 2;
+            const wobble = 0.72 + random() * 0.48;
+            const x = centerX + Math.cos(angle) * radiusX * wobble;
+            const y = centerY + Math.sin(angle) * radiusY * wobble;
+            if (point === 0) context.moveTo(x, y);
+            else context.lineTo(x, y);
+          }
+          context.closePath();
+          context.fillStyle = index % 2 ? baseColor : noiseColor;
+          context.fill();
+          context.strokeStyle = "#414448";
+          context.stroke();
         }
         break;
       case "glass":
@@ -106,12 +152,64 @@ export function drawTexture(baseColor, noiseColor, pattern = {}) {
         break;
       case "foliage":
         for (let index = 0; index < 16; index += 1) {
+          context.fillStyle = index % 2 ? noiseColor : "rgba(255, 255, 255, 0.12)";
           context.fillRect(
             Math.floor(random() * TEXTURE_SIZE),
             Math.floor(random() * TEXTURE_SIZE),
             1 + Math.floor(random() * 2),
             1 + Math.floor(random() * 2),
           );
+        }
+        for (let index = 0; index < 28; index += 1) {
+          context.clearRect(
+            Math.floor(random() * TEXTURE_SIZE),
+            Math.floor(random() * TEXTURE_SIZE),
+            1,
+            1,
+          );
+        }
+        break;
+      case "dirt":
+      case "stone":
+        for (let index = 0; index < 58; index += 1) {
+          context.fillStyle =
+            index % 3 === 0
+              ? "rgba(255, 255, 255, 0.12)"
+              : "rgba(0, 0, 0, 0.14)";
+          const size = random() < 0.12 ? 2 : 1;
+          context.fillRect(
+            Math.floor(random() * TEXTURE_SIZE),
+            Math.floor(random() * TEXTURE_SIZE),
+            size,
+            size,
+          );
+        }
+        break;
+      case "grassTop":
+        for (let index = 0; index < 66; index += 1) {
+          context.fillStyle =
+            index % 2 ? "rgba(255, 255, 255, 0.16)" : "rgba(0, 0, 0, 0.14)";
+          context.fillRect(
+            Math.floor(random() * TEXTURE_SIZE),
+            Math.floor(random() * TEXTURE_SIZE),
+            random() < 0.12 ? 2 : 1,
+            1,
+          );
+        }
+        break;
+      case "grassSide":
+        for (let x = 0; x < TEXTURE_SIZE; x += 1) {
+          const edge = 2 + Math.floor(random() * 3);
+          context.fillStyle = "#5eaa32";
+          context.fillRect(x, 0, 1, edge);
+          if (random() > 0.48) {
+            context.fillStyle = "#438326";
+            context.fillRect(x, edge - 1, 1, 1 + Math.floor(random() * 3));
+          }
+        }
+        for (let index = 0; index < 22; index += 1) {
+          context.fillStyle = index % 2 ? "#70bd3e" : "#438326";
+          context.fillRect(Math.floor(random() * TEXTURE_SIZE), Math.floor(random() * 4), 1, 1);
         }
         break;
       case "dots":
@@ -126,13 +224,38 @@ export function drawTexture(baseColor, noiseColor, pattern = {}) {
         break;
       case "rings":
         context.lineWidth = 1;
+        context.strokeStyle = noiseColor;
         context.beginPath();
-        context.arc(8, 8, 5, 0, Math.PI * 2);
+        context.arc(8, 8, 6, 0, Math.PI * 2);
+        context.stroke();
+        context.strokeStyle = "rgba(255, 255, 255, 0.28)";
+        context.beginPath();
+        context.arc(8, 8, 4, 0, Math.PI * 2);
+        context.stroke();
+        context.strokeStyle = noiseColor;
+        context.beginPath();
         context.arc(8, 8, 2, 0, Math.PI * 2);
         context.stroke();
         break;
+      case "wood":
+        context.lineWidth = 1;
+        for (let line = 0; line < 5; line += 1) {
+          const x = Math.floor(random() * TEXTURE_SIZE);
+          context.strokeStyle = line % 2 ? noiseColor : "rgba(50, 25, 10, 0.55)";
+          context.beginPath();
+          context.moveTo(x, 0);
+          context.lineTo(x + (random() - 0.5) * 2, TEXTURE_SIZE);
+          context.stroke();
+        }
+        break;
       case "bands":
         for (let y = 2; y < TEXTURE_SIZE; y += 5) context.fillRect(0, y, TEXTURE_SIZE, 1);
+        break;
+      case "water":
+        context.fillStyle = "rgba(205, 239, 255, 0.65)";
+        for (let y = 3; y < TEXTURE_SIZE; y += 5) {
+          context.fillRect(0, y, TEXTURE_SIZE, 1);
+        }
         break;
       default:
         break;
@@ -192,10 +315,10 @@ export function createBlockTextures() {
   const crackStages = Array.from({ length: 10 }, (_, index) => createCrackTexture(index + 1));
 
   const overrides = {
-    grassTop: ["#5eaa32", "#438326", "foliage"],
-    grassSide: ["#80502b", "#60391f", "bands"],
-    dirt: ["#80502b", "#704323", "noise"],
-    stone: ["#888888", "#696969", "cobble"],
+    grassTop: ["#5eaa32", "#438326", "grassTop"],
+    grassSide: ["#80502b", "#60391f", "grassSide"],
+    dirt: ["#80502b", "#704323", "dirt"],
+    stone: ["#888888", "#696969", "stone"],
     wood: ["#80502b", "#60391f", "wood"],
     woodTop: ["#b17a45", "#80502b", "rings"],
     leaves: ["#397c2b", "#2f6d25", "foliage"],
@@ -207,7 +330,7 @@ export function createBlockTextures() {
     diamondOre: ["#777777", "#35d7d2", "ore"],
     redstoneOre: ["#777777", "#d3342d", "ore"],
     lapisOre: ["#777777", "#3157c8", "ore"],
-    water: ["#2879bb", "#a9e3ff", "bands"],
+    water: ["#2879bb", "#a9e3ff", "water"],
     lava: ["#b83212", "#ffd34a", "bands"],
     oil: ["#171b20", "#76506e", "bands"],
     planks: ["#a87542", "#704626", "planks"],
@@ -230,10 +353,16 @@ export function createBlockTextures() {
   };
   for (const [textureName, { key, block }] of textureSources) {
     const [baseColor, noiseColor, pattern] = getBlockStyle(key, textureName, block.id, overrides);
-    textures[textureName] = drawTexture(baseColor, noiseColor, {
+    const texture = drawTexture(baseColor, noiseColor, {
       kind: pattern,
       seed: block.id * 7919 + textureName.length * 101,
     });
+    if (textureName === "water") {
+      texture.wrapS = RepeatWrapping;
+      texture.wrapT = RepeatWrapping;
+      texture.needsUpdate = true;
+    }
+    textures[textureName] = texture;
   }
 
   const blockTextures = Array(BLOCK_COUNT).fill(null);
@@ -242,10 +371,10 @@ export function createBlockTextures() {
     const textureNames = Array.isArray(block.textures)
       ? block.textures
       : Array(6).fill(block.textures);
-    blockTextures[block.id] = textureNames.map((name) => {
+    blockTextures[block.id] = textureNames.map((name, faceIndex) => {
       const texture = textures[name];
       if (!texture) throw new Error(`Missing texture "${name}" for ${block.name}.`);
-      return texture;
+      return shadeTexture(texture, FACE_BRIGHTNESS[faceIndex] ?? 0.8);
     });
   }
 

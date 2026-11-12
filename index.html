@@ -68,6 +68,20 @@
         <p class="menu-footer">Eine prozedurale Welt wartet auf dich</p>
       </div>
     </div>
+    <div id="pause-menu" role="dialog" aria-modal="true" aria-labelledby="pause-menu-title" hidden>
+      <div class="pause-panel">
+        <p class="menu-eyebrow">WELT PAUSIERT</p>
+        <h1 id="pause-menu-title">Pause</h1>
+        <div class="pause-buttons">
+          <button id="resume-button" class="menu-button primary" type="button">Weiter spielen</button>
+          <button id="pause-settings-button" class="menu-button" type="button">Einstellungen</button>
+          <button id="multiplayer-button" class="menu-button" type="button">Multiplayer</button>
+          <button id="save-quit-button" class="menu-button" type="button">Speichern &amp; Beenden</button>
+          <button id="quit-title-button" class="menu-button" type="button">Zurück zum Hauptmenü</button>
+        </div>
+        <p id="pause-message" class="menu-message" aria-live="polite"></p>
+      </div>
+    </div>
     <section id="char-creation-screen" class="character-creation" role="dialog" aria-modal="true"
       aria-labelledby="character-creation-title" hidden>
       <div class="character-creation-panel">

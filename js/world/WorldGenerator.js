@@ -51,6 +51,7 @@ export class WorldGenerator {
     this.seed = seed;
     const random = seededRandom(seed);
     this.temperature = createNoise2D(random);
+    this.moisture = createNoise2D(random);
     this.continentalness = createNoise2D(random);
     this.erosion = createNoise2D(random);
     this.peaks = createNoise2D(random);
@@ -60,7 +61,11 @@ export class WorldGenerator {
   }
 
   getTemperatureAt(worldX, worldZ) {
-    return this.temperature(worldX * 0.012 + 73, worldZ * 0.012 - 41);
+    return this.temperature(worldX * 0.003 + 73, worldZ * 0.003 - 41);
+  }
+
+  getMoistureAt(worldX, worldZ) {
+    return this.moisture(worldX * 0.003 + 17, worldZ * 0.003 - 59);
   }
 
   getContinentalnessAt(worldX, worldZ) {
@@ -81,6 +86,10 @@ export class WorldGenerator {
   }
 
   #getBaseHeightAt(worldX, worldZ) {
+    if (this.getBiomeAt(worldX, worldZ) === "swamp") {
+      return SEA_LEVEL - 2 + this.erosion(worldX * 0.004, worldZ * 0.004) * 0.5;
+    }
+
     const continent = this.getContinentalnessAt(worldX, worldZ);
     const erosion = this.getErosionAt(worldX, worldZ);
     const peaks = this.getPeaksAt(worldX, worldZ);
@@ -94,12 +103,14 @@ export class WorldGenerator {
   }
 
   getHeightAt(worldX, worldZ) {
-    const riverCut = this.getRiverStrengthAt(worldX, worldZ) * 4.5;
+    const biome = this.getBiomeAt(worldX, worldZ);
+    const riverCut = biome === "swamp" ? 0 : this.getRiverStrengthAt(worldX, worldZ) * 4.5;
     const height = Math.floor(this.#getBaseHeightAt(worldX, worldZ) - riverCut);
     return Math.max(3, Math.min(WORLD_HEIGHT - 8, height));
   }
 
   getWaterLevelAt(worldX, worldZ) {
+    if (this.getBiomeAt(worldX, worldZ) === "swamp") return SEA_LEVEL;
     const baseHeight = this.#getBaseHeightAt(worldX, worldZ);
     const riverStrength = this.getRiverStrengthAt(worldX, worldZ);
     if (riverStrength > 0.45 && baseHeight > SEA_LEVEL) {
@@ -110,8 +121,11 @@ export class WorldGenerator {
 
   getBiomeAt(worldX, worldZ) {
     const temperature = this.getTemperatureAt(worldX, worldZ);
+    const moisture = this.getMoistureAt(worldX, worldZ);
     if (temperature < -0.34) return "tundra";
-    if (temperature > 0.34) return "desert";
+    if (moisture > 0.48 && temperature > -0.3 && temperature < 0.3) return "swamp";
+    if (temperature > 0.44 && moisture < 0.1) return "desert";
+    if (temperature > 0.12 && moisture < 0.28) return "savanna";
     return "forest";
   }
 
@@ -127,6 +141,7 @@ export class WorldGenerator {
         const height = this.getHeightAt(worldX, worldZ);
         const waterLevel = this.getWaterLevelAt(worldX, worldZ);
         const biome = this.getBiomeAt(worldX, worldZ);
+        const fluidType = biome === "swamp" ? BlockType.OIL : BlockType.WATER;
         const surface =
           biome === "tundra"
             ? BlockType.SNOW
@@ -137,7 +152,7 @@ export class WorldGenerator {
         for (let localY = 0; localY < CHUNK_SIZE; localY += 1) {
           const worldY = worldYStart + localY;
           if (worldY > height) {
-            if (worldY <= waterLevel) blocks[blockIndex(x, localY, z)] = BlockType.WATER;
+            if (worldY <= waterLevel) blocks[blockIndex(x, localY, z)] = fluidType;
             continue;
           }
 
@@ -187,6 +202,7 @@ export class WorldGenerator {
 
     this.#placeGravelVeins(blocks, chunkX, chunkY, chunkZ);
     this.#placeTrees(blocks, chunkX, chunkY, chunkZ);
+    this.#placeBiomePlants(blocks, chunkX, chunkY, chunkZ);
     generateVillage(chunkX, chunkZ, blocks, heightMap, {
       chunkY,
       chunkSize: CHUNK_SIZE,
@@ -293,9 +309,11 @@ export class WorldGenerator {
     const yEnd = yStart + CHUNK_SIZE;
     for (let worldX = chunkX * CHUNK_SIZE - 2; worldX < (chunkX + 1) * CHUNK_SIZE + 2; worldX += 1) {
       for (let worldZ = chunkZ * CHUNK_SIZE - 2; worldZ < (chunkZ + 1) * CHUNK_SIZE + 2; worldZ += 1) {
+        const biome = this.getBiomeAt(worldX, worldZ);
+        const isSavanna = biome === "savanna";
         if (
-          hash2D(worldX, worldZ) > 0.045 ||
-          this.getBiomeAt(worldX, worldZ) !== "forest" ||
+          (!isSavanna && biome !== "forest") ||
+          hash2D(worldX, worldZ, 0x7f4a7c15) > (isSavanna ? 0.012 : 0.045) ||
           this.getWaterLevelAt(worldX, worldZ) > this.getHeightAt(worldX, worldZ)
         ) {
           continue;
@@ -304,38 +322,131 @@ export class WorldGenerator {
         const height = this.getHeightAt(worldX, worldZ);
         const localX = worldX - chunkX * CHUNK_SIZE;
         const localZ = worldZ - chunkZ * CHUNK_SIZE;
-        const treeHeight = 4 + Math.floor(hash2D(worldX, worldZ, 0x7f4a7c15) * 3);
+        const treeHeight = isSavanna
+          ? 5 + Math.floor(hash2D(worldX, worldZ, 0x31a7) * 4)
+          : 4 + Math.floor(hash2D(worldX, worldZ, 0x7f4a7c15) * 3);
         const trunkStart = height + 1;
         const crownY = height + treeHeight;
+        const trunkBlock = isSavanna ? BlockType.ACACIA_LOG : BlockType.WOOD;
 
         for (let worldY = trunkStart; worldY <= crownY; worldY += 1) {
           if (worldX < chunkX * CHUNK_SIZE || worldX >= (chunkX + 1) * CHUNK_SIZE) continue;
           if (worldZ < chunkZ * CHUNK_SIZE || worldZ >= (chunkZ + 1) * CHUNK_SIZE) continue;
           if (worldY < yStart || worldY >= yEnd) continue;
-          blocks[blockIndex(localX, worldY - yStart, localZ)] = BlockType.WOOD;
+          blocks[blockIndex(localX, worldY - yStart, localZ)] = trunkBlock;
         }
 
-        for (let worldY = crownY - 1; worldY <= crownY + 2; worldY += 1) {
-          if (worldY < yStart || worldY >= yEnd) continue;
-          const radius = worldY === crownY + 2 ? 1 : 2;
-          for (let leafX = worldX - radius; leafX <= worldX + radius; leafX += 1) {
-            for (let leafZ = worldZ - radius; leafZ <= worldZ + radius; leafZ += 1) {
-              if (Math.abs(leafX - worldX) === radius && Math.abs(leafZ - worldZ) === radius) continue;
-              const localLeafX = leafX - chunkX * CHUNK_SIZE;
-              const localLeafZ = leafZ - chunkZ * CHUNK_SIZE;
-              if (
-                localLeafX < 0 ||
-                localLeafX >= CHUNK_SIZE ||
-                localLeafZ < 0 ||
-                localLeafZ >= CHUNK_SIZE
-              ) {
-                continue;
-              }
-              const index = blockIndex(localLeafX, worldY - yStart, localLeafZ);
-              if (blocks[index] === BlockType.AIR) blocks[index] = BlockType.LEAVES;
+        if (isSavanna) {
+          const direction = hash2D(worldX, worldZ, 0x52f1) > 0.5 ? 1 : -1;
+          for (let step = 1; step <= 2; step += 1) {
+            const branchX = worldX + direction * step;
+            const branchY = crownY - 2 + step;
+            const branchLocalX = branchX - chunkX * CHUNK_SIZE;
+            if (
+              branchLocalX >= 0 &&
+              branchLocalX < CHUNK_SIZE &&
+              localZ >= 0 &&
+              localZ < CHUNK_SIZE &&
+              branchY >= yStart &&
+              branchY < yEnd
+            ) {
+              blocks[blockIndex(branchLocalX, branchY - yStart, localZ)] = trunkBlock;
             }
           }
+          this.#placeAcaciaCanopy(
+            blocks,
+            worldX,
+            worldZ,
+            crownY,
+            chunkX,
+            chunkY,
+            chunkZ,
+          );
+        } else {
+          this.#placeOakCanopy(
+            blocks,
+            worldX,
+            worldZ,
+            crownY,
+            chunkX,
+            chunkY,
+            chunkZ,
+          );
         }
+      }
+    }
+  }
+
+  #placeOakCanopy(blocks, worldX, worldZ, crownY, chunkX, chunkY, chunkZ) {
+    const yStart = chunkY * CHUNK_SIZE;
+    const yEnd = yStart + CHUNK_SIZE;
+    for (let worldY = crownY - 1; worldY <= crownY + 2; worldY += 1) {
+      if (worldY < yStart || worldY >= yEnd) continue;
+      const radius = worldY === crownY + 2 ? 1 : 2;
+      for (let leafX = worldX - radius; leafX <= worldX + radius; leafX += 1) {
+        for (let leafZ = worldZ - radius; leafZ <= worldZ + radius; leafZ += 1) {
+          if (Math.abs(leafX - worldX) === radius && Math.abs(leafZ - worldZ) === radius) continue;
+          const localLeafX = leafX - chunkX * CHUNK_SIZE;
+          const localLeafZ = leafZ - chunkZ * CHUNK_SIZE;
+          if (
+            localLeafX < 0 ||
+            localLeafX >= CHUNK_SIZE ||
+            localLeafZ < 0 ||
+            localLeafZ >= CHUNK_SIZE
+          ) {
+            continue;
+          }
+          const index = blockIndex(localLeafX, worldY - yStart, localLeafZ);
+          if (blocks[index] === BlockType.AIR) blocks[index] = BlockType.LEAVES;
+        }
+      }
+    }
+  }
+
+  #placeAcaciaCanopy(blocks, worldX, worldZ, crownY, chunkX, chunkY, chunkZ) {
+    const yStart = chunkY * CHUNK_SIZE;
+    const yEnd = yStart + CHUNK_SIZE;
+    for (let worldY = crownY - 1; worldY <= crownY + 1; worldY += 1) {
+      if (worldY < yStart || worldY >= yEnd) continue;
+      const radius = worldY === crownY ? 3 : 2;
+      for (let leafX = worldX - radius; leafX <= worldX + radius; leafX += 1) {
+        for (let leafZ = worldZ - radius; leafZ <= worldZ + radius; leafZ += 1) {
+          if (Math.abs(leafX - worldX) + Math.abs(leafZ - worldZ) > radius + 1) continue;
+          const localLeafX = leafX - chunkX * CHUNK_SIZE;
+          const localLeafZ = leafZ - chunkZ * CHUNK_SIZE;
+          if (
+            localLeafX < 0 ||
+            localLeafX >= CHUNK_SIZE ||
+            localLeafZ < 0 ||
+            localLeafZ >= CHUNK_SIZE
+          ) {
+            continue;
+          }
+          const index = blockIndex(localLeafX, worldY - yStart, localLeafZ);
+          if (blocks[index] === BlockType.AIR) blocks[index] = BlockType.ACACIA_LEAVES;
+        }
+      }
+    }
+  }
+
+  #placeBiomePlants(blocks, chunkX, chunkY, chunkZ) {
+    const worldYStart = chunkY * CHUNK_SIZE;
+    const worldYEnd = worldYStart + CHUNK_SIZE;
+    for (let x = 0; x < CHUNK_SIZE; x += 1) {
+      for (let z = 0; z < CHUNK_SIZE; z += 1) {
+        const worldX = chunkX * CHUNK_SIZE + x;
+        const worldZ = chunkZ * CHUNK_SIZE + z;
+        const biome = this.getBiomeAt(worldX, worldZ);
+        if (biome !== "savanna" && biome !== "swamp") continue;
+        const chance = biome === "swamp" ? 0.11 : 0.025;
+        if (hash2D(worldX, worldZ, 0x7521) > chance) continue;
+
+        const height = this.getHeightAt(worldX, worldZ);
+        const waterLevel = this.getWaterLevelAt(worldX, worldZ);
+        const plantY = (waterLevel > height ? waterLevel : height) + 1;
+        if (plantY < worldYStart || plantY >= worldYEnd) continue;
+        const index = blockIndex(x, plantY - worldYStart, z);
+        if (blocks[index] === BlockType.AIR) blocks[index] = BlockType.TALL_GRASS;
       }
     }
   }
