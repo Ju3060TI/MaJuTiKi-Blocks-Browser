@@ -1,1 +1,48 @@
-
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voxel World</title>
+    <link rel="stylesheet" href="./css/style.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+          "simplex-noise": "https://cdn.jsdelivr.net/npm/simplex-noise@4.0.3/+esm"
+        }
+      }
+    </script>
+    <script type="module" src="./js/main.js"></script>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+    <div id="crosshair" aria-hidden="true"></div>
+    <div id="status">Infinite Voxel World <span>Mine blocks to collect them</span></div>
+    <div id="hotbar" aria-label="Hotbar"></div>
+    <div id="instructions">Click to play · WASD move · Space jump · E inventory</div>
+    <section id="inventory" class="inventory-overlay" aria-label="Inventory" hidden>
+      <div class="inventory-panel">
+        <header>
+          <div>
+            <h1>Inventory &amp; Crafting</h1>
+            <p>Collect blocks, then craft planks and a crafting table.</p>
+          </div>
+          <button id="inventory-close" type="button" aria-label="Close inventory">×</button>
+        </header>
+        <div class="inventory-content">
+          <section>
+            <h2>Items</h2>
+            <div id="inventory-items" class="inventory-items"></div>
+          </section>
+          <section>
+            <h2>Crafting</h2>
+            <div id="recipes" class="recipes"></div>
+            <p id="inventory-message" aria-live="polite"></p>
+          </section>
+        </div>
+      </div>
+    </section>
+  </body>
+</html>
