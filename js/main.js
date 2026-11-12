@@ -145,7 +145,6 @@ player.controls.addEventListener("unlock", () => {
 });
 
 function animate() {
-  requestAnimationFrame(animate);
   const delta = clock.getDelta();
   player.update(delta);
   sky.update(delta, player.position);
@@ -155,6 +154,7 @@ function animate() {
 }
 
 window.addEventListener("pagehide", () => {
+  renderer.setAnimationLoop(null);
   mainMenu.dispose();
   player.dispose();
   inventory.dispose();
@@ -164,4 +164,4 @@ window.addEventListener("pagehide", () => {
   renderer.dispose();
 });
 
-animate();
+renderer.setAnimationLoop(animate);

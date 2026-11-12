@@ -127,13 +127,13 @@ export class WorldGenerator {
         const height = this.getHeightAt(worldX, worldZ);
         const waterLevel = this.getWaterLevelAt(worldX, worldZ);
         const biome = this.getBiomeAt(worldX, worldZ);
-        heightMap[x * CHUNK_SIZE + z] = { height, surface, waterLevel };
         const surface =
           biome === "tundra"
             ? BlockType.SNOW
             : biome === "desert"
               ? BlockType.SAND
               : BlockType.GRASS;
+        heightMap[x * CHUNK_SIZE + z] = { height, surface, waterLevel };
         for (let localY = 0; localY < CHUNK_SIZE; localY += 1) {
           const worldY = worldYStart + localY;
           if (worldY > height) {

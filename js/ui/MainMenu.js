@@ -101,7 +101,10 @@ export class MainMenu {
     this.starting = false;
     this.loadingTimer = null;
     this.lockTimeout = null;
-    this.onPlay = () => this.#startGame();
+    this.onPlay = (event) => {
+      event.preventDefault();
+      this.#startGame();
+    };
     this.onCharacterBack = () => this.#showMainMenu();
     this.onEnterWorld = () => this.#enterWorld();
     this.onSettings = () => this.#showSettings();
@@ -147,28 +150,39 @@ export class MainMenu {
   }
 
   #startGame() {
-    this.element.hidden = true;
-    this.characterScreen.hidden = false;
-    this.characterMessage.textContent = "";
-    this.factionSelect.focus();
+    this.#beginWorld();
   }
 
   #enterWorld() {
+    this.#beginWorld();
+  }
+
+  #beginWorld() {
     if (this.starting) return;
     this.starting = true;
+    clearTimeout(this.loadingTimer);
+    clearTimeout(this.lockTimeout);
     this.message.textContent = "";
     this.characterMessage.textContent = "";
     window.gameSettings.playerFaction = this.factionSelect.value;
     window.gameSettings.playerRace = this.raceSelect.value;
     window.gameSettings.playerClass = this.playerClassSelect.value;
+    this.element.hidden = true;
+    this.characterScreen.hidden = true;
+    this.loadingScreen.hidden = false;
+
+    try {
+      this.controls.lock();
+    } catch (error) {
+      this.#restoreMenu("Mouse capture could not be requested. Please try again.");
+      console.error("Pointer lock request failed:", error);
+      return;
+    }
+
     this.#dispatchGameSettings();
     window.dispatchEvent(new CustomEvent("charactercreated", {
       detail: { ...window.gameSettings },
     }));
-    this.characterScreen.hidden = true;
-    this.loadingScreen.hidden = false;
-
-    this.controls.lock();
     this.lockTimeout = window.setTimeout(() => {
       if (this.controls.isLocked || !this.starting) return;
       this.#restoreMenu("Mouse capture was blocked. Click Play and allow pointer lock.");
