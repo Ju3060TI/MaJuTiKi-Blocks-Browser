@@ -69,6 +69,31 @@
         <p class="menu-footer">Eine prozedurale Welt wartet auf dich</p>
       </div>
     </div>
+    <div id="world-creation-menu" role="dialog" aria-modal="true"
+      aria-labelledby="world-creation-title" hidden>
+      <div class="world-creation-panel">
+        <p class="menu-eyebrow">DEIN ABENTEUER BEGINNT</p>
+        <h1 id="world-creation-title">Neue Welt erstellen</h1>
+        <label for="world-name">Weltname</label>
+        <input id="world-name" type="text" placeholder="Meine epische Welt" maxlength="64" />
+        <label for="world-seed">Seed</label>
+        <div class="world-seed-row">
+          <input id="world-seed" type="text" autocomplete="off" />
+          <button id="random-seed-button" class="menu-button" type="button">Zufällig</button>
+        </div>
+        <label for="world-game-mode">Spielmodus</label>
+        <select id="world-game-mode">
+          <option value="vanilla">Survival (Standard)</option>
+          <option value="creative">Creative (Fliegen, unendliche Blöcke)</option>
+          <option value="rpg">RPG (Klassen, Magie)</option>
+        </select>
+        <div class="world-creation-actions">
+          <button id="world-creation-back" class="menu-button" type="button">Zurück</button>
+          <button id="create-world-button" class="menu-button primary" type="button">Welt erstellen</button>
+        </div>
+        <p id="world-creation-message" class="menu-message" aria-live="polite"></p>
+      </div>
+    </div>
     <div id="pause-menu" role="dialog" aria-modal="true" aria-labelledby="pause-menu-title" hidden>
       <div class="pause-panel">
         <p class="menu-eyebrow">WELT PAUSIERT</p>

@@ -49,6 +49,96 @@ body.game-paused {
   display: none;
 }
 
+#world-creation-menu {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: auto;
+  background:
+    linear-gradient(rgb(0 0 0 / 65%), rgb(0 0 0 / 82%)),
+    repeating-linear-gradient(45deg, #343434 0 16px, #3b3b3b 16px 32px);
+  color: #fff;
+  text-align: left;
+}
+
+#world-creation-menu[hidden] {
+  display: none;
+}
+
+.world-creation-panel {
+  width: min(520px, 100%);
+  padding: 30px;
+  border: 4px solid #252525;
+  background: #555;
+  box-shadow: inset 0 0 0 3px #999, 0 18px 60px rgb(0 0 0 / 65%);
+  image-rendering: pixelated;
+}
+
+.world-creation-panel h1 {
+  margin: 8px 0 26px;
+  color: #fff;
+  font: 700 clamp(25px, 5vw, 36px) "Courier New", monospace;
+  text-shadow: 2px 2px #333;
+}
+
+.world-creation-panel > label {
+  display: block;
+  margin: 18px 0 8px;
+  color: #f2f2f2;
+  font: 700 15px "Courier New", monospace;
+  text-shadow: 1px 1px #222;
+}
+
+.world-creation-panel input,
+.world-creation-panel select {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 2px solid #292929;
+  border-top-color: #222;
+  border-left-color: #222;
+  border-radius: 0;
+  background: #3d3d3d;
+  color: #fff;
+  font: 15px "Courier New", monospace;
+}
+
+.world-creation-panel input::placeholder {
+  color: #c4c4c4;
+  opacity: 1;
+}
+
+.world-creation-panel input:focus-visible,
+.world-creation-panel select:focus-visible {
+  outline: 2px solid #d5efaa;
+  outline-offset: 2px;
+}
+
+.world-seed-row {
+  display: flex;
+  gap: 8px;
+}
+
+.world-seed-row .menu-button {
+  flex: 0 0 auto;
+  min-height: 46px;
+}
+
+.world-creation-actions {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 10px;
+  margin-top: 26px;
+}
+
+.world-creation-actions .primary {
+  background: linear-gradient(#91b95e, #648d3f);
+}
+
 #pause-menu {
   position: fixed;
   inset: 0;

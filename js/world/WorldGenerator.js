@@ -12,6 +12,26 @@ export const LAVA_LEVEL = 4;
 
 const CHUNK_AREA = CHUNK_SIZE * CHUNK_SIZE;
 const GRAVEL_VEIN_MARGIN = 10;
+const WORLD_OPTIONS_KEY = "majutiki-world-settings";
+
+function hashSeed(seed) {
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function getStoredWorldSeed() {
+  try {
+    const savedOptions = JSON.parse(localStorage.getItem(WORLD_OPTIONS_KEY) ?? "{}");
+    return typeof savedOptions.worldSeed === "string" ? savedOptions.worldSeed : undefined;
+  } catch (error) {
+    console.error("Could not load the saved world seed:", error);
+    return undefined;
+  }
+}
 
 function seededRandom(seed) {
   let state = seed >>> 0;
@@ -47,9 +67,29 @@ function smoothstep(edge0, edge1, value) {
 }
 
 export class WorldGenerator {
-  constructor(seed = 20240601) {
-    this.seed = seed;
-    const random = seededRandom(seed);
+  constructor(seed) {
+    const configuredSeed = seed ??
+      (typeof window === "undefined" ? undefined : window.gameSettings?.worldSeed) ??
+      (typeof localStorage === "undefined" ? undefined : getStoredWorldSeed()) ??
+      20240601;
+    this.setSeed(configuredSeed);
+    this.onGameSettingsChange = (event) => {
+      if (event.detail?.worldSeed !== undefined) {
+        this.setSeed(event.detail.worldSeed);
+      }
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("gamesettingschange", this.onGameSettingsChange);
+    }
+  }
+
+  setSeed(seed) {
+    const numericSeed = typeof seed === "number"
+      ? seed >>> 0
+      : hashSeed(String(seed));
+    if (this.seed === numericSeed) return;
+    this.seed = numericSeed;
+    const random = seededRandom(numericSeed);
     this.temperature = createNoise2D(random);
     this.moisture = createNoise2D(random);
     this.biomeWarp = createNoise2D(random);
