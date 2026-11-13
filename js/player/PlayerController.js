@@ -22,6 +22,7 @@ const WATER_GRAVITY_SCALE = 0.18;
 const COLLISION_EPSILON = 1e-5;
 const BASE_MAX_HEALTH = 20;
 const DAMAGE_COOLDOWN = 1;
+const HOTBAR_SLOT_COUNT = 9;
 const BLOCKS_BY_ID = new Map(
   Object.values(BLOCKS).map((block) => [block.id, block]),
 );
@@ -51,6 +52,8 @@ export class PlayerController {
     this.grounded = false;
     this.maxHealth = BASE_MAX_HEALTH;
     this.health = this.maxHealth;
+    this.hunger = 20;
+    this.maxHunger = 20;
     this.baseDamage = 1;
     this.moveSpeed = MOVE_SPEED;
     this.mana = 0;
@@ -59,6 +62,9 @@ export class PlayerController {
     this.healthElement = document.querySelector("#health");
     this.healthBar = document.querySelector("#health-fill");
     this.healthLabel = document.querySelector("#health-label");
+    this.hungerElement = document.querySelector("#hunger");
+    this.hungerBar = document.querySelector("#hunger-fill");
+    this.hungerLabel = document.querySelector("#hunger-label");
     this.messageElement = document.querySelector("#game-message");
     this.messageTimer = null;
     this.stepElapsed = 0;
@@ -104,6 +110,11 @@ export class PlayerController {
     };
     this.onMouseDown = (event) => {
       if (this.controls.isLocked) this.audio.unlock();
+      if (event.button === 2 && this.controls.isLocked && this.#handleBucketInteraction()) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
       if (event.button === 2 && this.controls.isLocked && this.magicSystem.handleRightClick()) {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -138,10 +149,19 @@ export class PlayerController {
 
   update(deltaSeconds) {
     const delta = Math.min(deltaSeconds, 0.05);
-    this.damageCooldown = Math.max(0, this.damageCooldown - delta);
     const previousX = this.position.x;
     const previousZ = this.position.z;
+    this.damageCooldown = Math.max(0, this.damageCooldown - delta);
     if (this.controls.isLocked) this.#moveHorizontally(delta);
+    const movement = Math.hypot(this.position.x - previousX, this.position.z - previousZ);
+    if (this.gameSettings.gameMode !== "creative") {
+      const isMoving = movement > 0.05;
+      const hungerDrain = isMoving ? delta * 0.08 : delta * 0.02;
+      this.hunger = Math.max(0, this.hunger - hungerDrain);
+      if (this.hunger <= 0 && this.damageCooldown <= 0) {
+        this.takeDamage(delta * 2, { kind: "starvation" });
+      }
+    }
     this.#updateFootsteps(delta);
     if (this.gameSettings.gameMode === "creative") {
       this.#flyVertically(delta);
@@ -153,7 +173,7 @@ export class PlayerController {
       Math.hypot(this.position.x - previousX, this.position.z - previousZ),
     );
     this.particles.update(delta);
-    this.world.update(this.position);
+    this.world.update(this.position, delta);
     this.#syncCamera();
     this.#updateMining(delta);
     this.world.updateItemDrops(delta, this, this.inventory);
@@ -321,12 +341,21 @@ export class PlayerController {
     if (this.healthElement) {
       this.healthElement.hidden = this.gameSettings.gameMode === "creative";
     }
+    if (this.hungerElement) {
+      this.hungerElement.hidden = this.gameSettings.gameMode === "creative";
+    }
     if (this.healthBar) {
       this.healthBar.style.width = `${(this.health / this.maxHealth) * 100}%`;
     }
+    if (this.hungerBar) {
+      this.hungerBar.style.width = `${(this.hunger / this.maxHunger) * 100}%`;
+    }
     this.healthElement?.setAttribute("aria-valuenow", String(this.health));
     this.healthElement?.setAttribute("aria-valuemax", String(this.maxHealth));
-    if (this.healthLabel) this.healthLabel.textContent = `Health ${this.health} / ${this.maxHealth}`;
+    this.hungerElement?.setAttribute("aria-valuenow", String(Math.ceil(this.hunger)));
+    this.hungerElement?.setAttribute("aria-valuemax", String(this.maxHunger));
+    if (this.healthLabel) this.healthLabel.textContent = `❤ Health ${this.health} / ${this.maxHealth}`;
+    if (this.hungerLabel) this.hungerLabel.textContent = `🍗 Hunger ${Math.ceil(this.hunger)} / ${this.maxHunger}`;
   }
 
   #applyFactionSpawn() {
@@ -442,6 +471,10 @@ export class PlayerController {
       this.#resetMiningTarget();
       return;
     }
+    if (BLOCKS_BY_ID.get(type)?.isFluid) {
+      this.#resetMiningTarget();
+      return;
+    }
 
     const targetKey = `${block.x},${block.y},${block.z}`;
     if (targetKey !== this.miningTarget) {
@@ -476,6 +509,9 @@ export class PlayerController {
         { x: (Math.random() - 0.5) * 1.4, y: 1.8, z: (Math.random() - 0.5) * 1.4 },
       );
     }
+    if (dropped !== BlockType.AIR) {
+      this.inventory?.questSystem?.trackBlockBreak(dropped);
+    }
     if (dropped !== BlockType.AIR && !isFluid && this.gameSettings.gameMode !== "creative") {
       this.awardExperience(1);
     }
@@ -492,6 +528,71 @@ export class PlayerController {
       }
     }
     this.#resetMiningTarget();
+  }
+
+  #handleBucketInteraction() {
+    if (!this.inventory?.items || !Number.isInteger(this.inventory.selectedSlot)) return false;
+    const selectedIndex = this.inventory.items.length - HOTBAR_SLOT_COUNT +
+      this.inventory.selectedSlot;
+    const selectedItem = this.inventory.items[selectedIndex]?.item;
+    if (selectedItem !== ITEMS.EMPTY_BUCKET && selectedItem !== ITEMS.WATER_BUCKET) {
+      return false;
+    }
+
+    this.camera.updateMatrixWorld();
+    this.raycaster.setFromCamera(this.screenCenter, this.camera);
+    const hit = this.raycaster.intersectObjects(this.world.getMeshes(), false)[0];
+    if (!hit?.face) return false;
+
+    const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+    const block = {
+      x: Math.floor(hit.point.x - normal.x * 0.01),
+      y: Math.floor(hit.point.y - normal.y * 0.01),
+      z: Math.floor(hit.point.z - normal.z * 0.01),
+    };
+    const type = this.world.getBlockAt(block.x, block.y, block.z);
+
+    if (
+      selectedItem === ITEMS.EMPTY_BUCKET &&
+      type === BlockType.WATER &&
+      this.world.getFluidLevelAt(block.x, block.y, block.z) === 7
+    ) {
+      if (!this.inventory.removeItem(ITEMS.EMPTY_BUCKET, 1)) return true;
+      if (!this.world.setBlockAt(block.x, block.y, block.z, BlockType.AIR)) {
+        this.inventory.addItem(ITEMS.EMPTY_BUCKET, 1);
+        return true;
+      }
+      if (!this.inventory.addItem(ITEMS.WATER_BUCKET, 1)) {
+        this.world.setBlockAt(block.x, block.y, block.z, BlockType.WATER, 7);
+        this.inventory.addItem(ITEMS.EMPTY_BUCKET, 1);
+      }
+      return true;
+    }
+
+    if (
+      selectedItem === ITEMS.WATER_BUCKET &&
+      BLOCKS_BY_ID.get(type)?.isSolid
+    ) {
+      const placeAt = {
+        x: Math.floor(hit.point.x + normal.x * 0.01),
+        y: Math.floor(hit.point.y + normal.y * 0.01),
+        z: Math.floor(hit.point.z + normal.z * 0.01),
+      };
+      if (this.world.getBlockAt(placeAt.x, placeAt.y, placeAt.z) !== BlockType.AIR) {
+        return false;
+      }
+      if (!this.inventory.removeItem(ITEMS.WATER_BUCKET, 1)) return true;
+      if (!this.world.setBlockAt(placeAt.x, placeAt.y, placeAt.z, BlockType.WATER, 7)) {
+        this.inventory.addItem(ITEMS.WATER_BUCKET, 1);
+        return true;
+      }
+      if (!this.inventory.addItem(ITEMS.EMPTY_BUCKET, 1)) {
+        this.world.setBlockAt(placeAt.x, placeAt.y, placeAt.z, BlockType.AIR);
+        this.inventory.addItem(ITEMS.WATER_BUCKET, 1);
+      }
+      return true;
+    }
+    return false;
   }
 
   #updateFootsteps(delta) {

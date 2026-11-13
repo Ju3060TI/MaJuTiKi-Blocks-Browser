@@ -61,6 +61,8 @@ export class MainMenu {
     this.lodDistanceValue = document.querySelector("#lod-distance-value");
     this.simDistanceSlider = document.querySelector("#sim-distance");
     this.simDistanceValue = document.querySelector("#sim-distance-value");
+    this.fancyLeavesToggle = document.querySelector("#fancy-leaves");
+    this.smoothLightingToggle = document.querySelector("#smooth-lighting");
     this.menuButtons = document.querySelector(".menu-buttons");
     this.message = document.querySelector("#menu-message");
     if (
@@ -94,6 +96,8 @@ export class MainMenu {
       !this.lodDistanceValue ||
       !this.simDistanceSlider ||
       !this.simDistanceValue ||
+      !this.fancyLeavesToggle ||
+      !this.smoothLightingToggle ||
       !this.menuButtons ||
       !this.message
     ) {
@@ -118,6 +122,8 @@ export class MainMenu {
       renderDistance: getSetting(savedSettings.renderDistance, 4, 2, 10),
       simDistance: getSetting(savedSettings.simDistance, 4, 1, 10),
       lodDistance: getSetting(savedSettings.lodDistance, 2, 1, 5),
+      fancyLeaves: savedSettings.fancyLeaves !== false,
+      smoothLighting: savedSettings.smoothLighting !== false,
       playerFaction: ["neutral", "villager", "elves", "dwarves", "monsters"].includes(savedSettings.playerFaction)
         ? savedSettings.playerFaction
         : "neutral",
@@ -135,6 +141,8 @@ export class MainMenu {
     this.renderDistanceSlider.value = String(window.gameSettings.renderDistance);
     this.lodDistanceSlider.value = String(window.gameSettings.lodDistance);
     this.simDistanceSlider.value = String(window.gameSettings.simDistance);
+    this.fancyLeavesToggle.checked = window.gameSettings.fancyLeaves;
+    this.smoothLightingToggle.checked = window.gameSettings.smoothLighting;
     this.factionSelect.value = window.gameSettings.playerFaction;
     this.raceSelect.value = window.gameSettings.playerRace;
     this.playerClassSelect.value = window.gameSettings.playerClass;
@@ -161,6 +169,7 @@ export class MainMenu {
     this.onSettings = () => this.#showSettings();
     this.onSettingsBack = () => this.#showMenuButtons();
     this.onDistanceInput = () => this.#handleDistanceInput();
+    this.onVisualSettingsChange = () => this.#handleVisualSettingsChange();
     this.onGameModeChange = () => this.#handleGameSettingsInput();
     this.onRpgClassChange = () => this.#handleGameSettingsInput();
     this.onLock = () => this.#handlePointerLock();
@@ -177,6 +186,8 @@ export class MainMenu {
     this.renderDistanceSlider.addEventListener("input", this.onDistanceInput);
     this.lodDistanceSlider.addEventListener("input", this.onDistanceInput);
     this.simDistanceSlider.addEventListener("input", this.onDistanceInput);
+    this.fancyLeavesToggle.addEventListener("change", this.onVisualSettingsChange);
+    this.smoothLightingToggle.addEventListener("change", this.onVisualSettingsChange);
     this.gameModeSelect.addEventListener("change", this.onGameModeChange);
     this.rpgClassSelect.addEventListener("change", this.onRpgClassChange);
     this.controls.addEventListener("lock", this.onLock);
@@ -200,6 +211,8 @@ export class MainMenu {
     this.renderDistanceSlider.removeEventListener("input", this.onDistanceInput);
     this.lodDistanceSlider.removeEventListener("input", this.onDistanceInput);
     this.simDistanceSlider.removeEventListener("input", this.onDistanceInput);
+    this.fancyLeavesToggle.removeEventListener("change", this.onVisualSettingsChange);
+    this.smoothLightingToggle.removeEventListener("change", this.onVisualSettingsChange);
     this.gameModeSelect.removeEventListener("change", this.onGameModeChange);
     this.rpgClassSelect.removeEventListener("change", this.onRpgClassChange);
     this.controls.removeEventListener("lock", this.onLock);
@@ -240,6 +253,8 @@ export class MainMenu {
         worldName,
         worldSeed,
         gameMode,
+        fancyLeaves: window.gameSettings.fancyLeaves,
+        smoothLighting: window.gameSettings.smoothLighting,
       }));
     } catch (error) {
       this.worldCreationMessage.textContent = "Welteinstellungen konnten nicht gespeichert werden.";
@@ -354,6 +369,12 @@ export class MainMenu {
     window.gameSettings.gameMode = this.gameModeSelect.value;
     window.gameSettings.rpgClass = this.rpgClassSelect.value;
     this.#updateClassVisibility();
+    this.#dispatchGameSettings();
+  }
+
+  #handleVisualSettingsChange() {
+    window.gameSettings.fancyLeaves = this.fancyLeavesToggle.checked;
+    window.gameSettings.smoothLighting = this.smoothLightingToggle.checked;
     this.#dispatchGameSettings();
   }
 

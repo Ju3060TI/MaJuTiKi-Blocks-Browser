@@ -321,6 +321,14 @@ body.game-paused {
   outline-offset: 4px;
 }
 
+#fancy-leaves,
+#smooth-lighting {
+  width: 18px;
+  height: 18px;
+  accent-color: #a7d56d;
+  cursor: pointer;
+}
+
 .menu-message {
   min-height: 20px;
   margin: 14px 0 0;
@@ -533,6 +541,7 @@ body.game-paused {
 
 body.menu-open #crosshair,
 body.menu-open #hotbar,
+body.menu-open #hud-bars,
 body.menu-open #health,
 body.menu-open #instructions,
 body.menu-open #status {
@@ -541,6 +550,7 @@ body.menu-open #status {
 
 body.game-paused #crosshair,
 body.game-paused #hotbar,
+body.game-paused #hud-bars,
 body.game-paused #health,
 body.game-paused #instructions,
 body.game-paused #status {
@@ -652,6 +662,58 @@ body.game-paused #game-message {
   pointer-events: none;
 }
 
+#quest-panel {
+  position: fixed;
+  top: 72px;
+  left: 18px;
+  z-index: 5;
+  width: min(220px, calc(100vw - 36px));
+  padding: 10px 12px 8px;
+  border: 1px solid rgb(255 255 255 / 35%);
+  border-radius: 8px;
+  background: rgb(18 24 29 / 72%);
+  color: #f4f4f4;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
+  pointer-events: none;
+}
+
+#quest-panel h2 {
+  margin: 0 0 8px;
+  color: #fff;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+#quest-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.quest-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: rgb(255 255 255 / 8%);
+  color: #dfe7ef;
+  font-size: 12px;
+}
+
+.quest-item.complete {
+  background: rgb(116 188 90 / 20%);
+  color: #d8ffd4;
+}
+
+.quest-item small {
+  color: #b8d3ff;
+}
+
 #status span {
   display: block;
   margin-top: 3px;
@@ -659,11 +721,22 @@ body.game-paused #game-message {
   font-weight: 400;
 }
 
-#health {
+#hud-bars {
   position: fixed;
   top: 16px;
   right: 18px;
-  width: 180px;
+  left: 18px;
+  z-index: 6;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  pointer-events: none;
+}
+
+#health,
+#hunger {
+  width: min(180px, 30vw);
   color: #fff;
   font-size: 12px;
   font-weight: 700;
@@ -671,7 +744,12 @@ body.game-paused #game-message {
   pointer-events: none;
 }
 
-#health-track {
+#hunger {
+  margin-left: auto;
+}
+
+#health-track,
+#hunger-track {
   height: 12px;
   margin-top: 5px;
   overflow: hidden;
@@ -680,11 +758,19 @@ body.game-paused #game-message {
   background: rgb(20 20 20 / 75%);
 }
 
-#health-fill {
+#health-fill,
+#hunger-fill {
   width: 100%;
   height: 100%;
-  background: #d84c48;
   transition: width 150ms ease-out;
+}
+
+#health-fill {
+  background: #d84c48;
+}
+
+#hunger-fill {
+  background: linear-gradient(90deg, #b7f142, #7ccf3f);
 }
 
 #hotbar {
@@ -791,6 +877,7 @@ body.game-paused #game-message {
   width: 34px;
   height: 32px;
   filter: drop-shadow(1px 2px 1px rgb(0 0 0 / 45%));
+  image-rendering: pixelated;
   pointer-events: none;
 }
 
@@ -802,6 +889,11 @@ body.game-paused #game-message {
   background-position: center;
   background-size: 100% 100%;
   image-rendering: pixelated;
+}
+
+.iso-face.atlas-face {
+  background-size: 1600% 1600%;
+  background-position: var(--atlas-position);
 }
 
 .iso-face-top {

@@ -63,6 +63,14 @@
             <output id="sim-distance-value" for="sim-distance">4 Chunks</output>
           </label>
           <input id="sim-distance" class="render-distance-slider" type="range" min="1" max="10" step="1" value="4" />
+          <label class="render-distance-control" for="fancy-leaves">
+            <span>Transparentes Laub</span>
+            <input id="fancy-leaves" type="checkbox" checked />
+          </label>
+          <label class="render-distance-control" for="smooth-lighting">
+            <span>Weiche Beleuchtung</span>
+            <input id="smooth-lighting" type="checkbox" checked />
+          </label>
           <button id="settings-back" class="menu-button" type="button">Zurück</button>
         </div>
         <p id="menu-message" class="menu-message" aria-live="polite"></p>
@@ -164,10 +172,20 @@
     </div>
     <div id="crosshair" aria-hidden="true"></div>
     <div id="status">Infinite Voxel World <span>Mine blocks to collect them</span></div>
-    <div id="health" role="progressbar" aria-label="Player health" aria-valuemin="0" aria-valuemax="20" aria-valuenow="20">
-      <span id="health-label">Health 20 / 20</span>
-      <div id="health-track"><div id="health-fill"></div></div>
+    <div id="hud-bars">
+      <div id="health" role="progressbar" aria-label="Player health" aria-valuemin="0" aria-valuemax="20" aria-valuenow="20">
+        <span id="health-label">❤ Health 20 / 20</span>
+        <div id="health-track"><div id="health-fill"></div></div>
+      </div>
+      <div id="hunger" role="progressbar" aria-label="Player hunger" aria-valuemin="0" aria-valuemax="20" aria-valuenow="20">
+        <span id="hunger-label">🍗 Hunger 20 / 20</span>
+        <div id="hunger-track"><div id="hunger-fill"></div></div>
+      </div>
     </div>
+    <aside id="quest-panel" class="quest-panel" aria-live="polite">
+      <h2>Quests</h2>
+      <ul id="quest-list"></ul>
+    </aside>
     <div id="hotbar" aria-label="Hotbar"></div>
     <div id="instructions">Click to play · WASD move · Space jump · Q drop item · E inventory</div>
     <div id="game-message" role="status" aria-live="polite" hidden></div>
@@ -211,7 +229,13 @@
         </div>
         <div class="inventory-storage-layout">
           <section class="inventory-section" aria-label="Player inventory">
-            <h2>Items</h2>
+            <div class="inventory-header-row">
+              <h2>Items</h2>
+              <label class="inventory-search-wrap" for="inventory-search">
+                <span class="sr-only">Search inventory</span>
+                <input id="inventory-search" type="search" placeholder="Search items..." aria-label="Search items" />
+              </label>
+            </div>
             <div id="inventory-items" class="player-inventory" role="grid" aria-label="Main inventory, 3 rows by 9 columns"></div>
             <h2 class="hotbar-heading">Hotbar</h2>
             <div id="inventory-hotbar" class="inventory-hotbar" role="grid" aria-label="Hotbar, 1 row by 9 columns"></div>

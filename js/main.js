@@ -16,6 +16,7 @@ import { Sky } from "./world/Sky.js";
 import { BlockType } from "./world/WorldGenerator.js";
 import { World } from "./world/World.js";
 import { WorldGenerator } from "./world/WorldGenerator.js";
+import { QuestSystem } from "./systems/QuestSystem.js";
 
 const canvas = document.querySelector("#game");
 const instructions = document.querySelector("#instructions");
@@ -95,6 +96,8 @@ const world = new World(
 );
 const inventory = new InventoryManager(world.textures);
 const player = new PlayerController(camera, renderer.domElement, world, world.getSpawnPoint(), inventory);
+const questSystem = new QuestSystem(player, inventory, world);
+inventory.setQuestSystem(questSystem);
 const entities = new EntityManager(scene, world, inventory);
 player.magicSystem.setEntities(entities.entities);
 const sky = new Sky(scene, ambientLight);

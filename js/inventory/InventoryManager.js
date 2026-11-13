@@ -1,5 +1,10 @@
 import { BLOCK_NAMES, BlockType } from "../world/WorldGenerator.js";
-import { BLOCKS, ITEMS } from "../world/blocks.js";
+import {
+  BLOCKS,
+  BLOCK_TEXTURE_ATLAS,
+  ITEMS,
+  TEXTURE_ATLAS_GRID_SIZE,
+} from "../world/blocks.js";
 
 export const ToolType = Object.freeze({
   WOODEN_PICKAXE: "woodenPickaxe",
@@ -124,6 +129,7 @@ function itemName(item) {
 }
 
 const BLOCK_IDS = new Set(Object.values(BLOCKS).map(({ id }) => id));
+const BLOCKS_BY_ID = new Map(Object.values(BLOCKS).map((block) => [block.id, block]));
 
 const RECIPES = [
   {
@@ -308,6 +314,9 @@ export class InventoryManager {
     this.items = Array.from({ length: INVENTORY_SLOT_COUNT }, () => null);
     this.craftingItems = Array.from({ length: 4 }, () => null);
     this.armorItems = Array.from({ length: 4 }, () => null);
+    this.searchInput = document.querySelector("#inventory-search");
+    this.searchQuery = this.searchInput?.value.trim().toLowerCase() ?? "";
+    this.questSystem = null;
     this.cursorStack = null;
     this.craftMatch = null;
     this.selectedSlot = 0;
@@ -352,15 +361,24 @@ export class InventoryManager {
       this.dragSource = null;
       this.panel.querySelectorAll(".drag-over").forEach((slot) => slot.classList.remove("drag-over"));
     };
+    this.onInventorySearch = (event) => {
+      this.searchQuery = event.target.value.trim().toLowerCase();
+      this.render();
+    };
     this.panel.addEventListener("click", this.onPanelClick);
     this.panel.addEventListener("dragstart", this.onDragStart);
     this.panel.addEventListener("dragover", this.onDragOver);
     this.panel.addEventListener("drop", this.onDrop);
     this.panel.addEventListener("dragend", this.onDragEnd);
     this.panel.addEventListener("contextmenu", this.onContextMenu);
+    this.searchInput?.addEventListener("input", this.onInventorySearch);
     window.addEventListener("keydown", this.onInventoryKeyDown, true);
     document.querySelector("#inventory-close").addEventListener("click", this.onCloseClick);
     this.render();
+  }
+
+  setQuestSystem(questSystem) {
+    this.questSystem = questSystem;
   }
 
   addItem(item, amount = 1) {
@@ -735,7 +753,10 @@ export class InventoryManager {
       slot.dataset.area = "inventory";
       slot.dataset.slot = String(index);
       slot.setAttribute("role", "gridcell");
-      this.#renderStack(slot, this.items[index]);
+      const stack = this.items[index];
+      const shouldShow = this.searchQuery ? this.#matchesSearch(stack) : true;
+      slot.hidden = !shouldShow;
+      this.#renderStack(slot, stack);
       this.slotsElement.append(slot);
     }
   }
@@ -750,7 +771,10 @@ export class InventoryManager {
       slot.dataset.slot = String(index);
       slot.setAttribute("role", "gridcell");
       slot.setAttribute("aria-label", `Hotbar slot ${index + 1}`);
-      this.#renderStack(slot, this.items[HOTBAR_START_INDEX + index]);
+      const stack = this.items[HOTBAR_START_INDEX + index];
+      const shouldShow = this.searchQuery ? this.#matchesSearch(stack) : true;
+      slot.hidden = !shouldShow;
+      this.#renderStack(slot, stack);
       this.inventoryHotbarElement.append(slot);
     }
   }
@@ -791,6 +815,11 @@ export class InventoryManager {
       canCraft ? { item: output[0], count: output[1] } : null,
     );
     if (output && !canCraft) this.outputElement.title = "Inventory is full";
+  }
+
+  #matchesSearch(stack) {
+    if (!stack || !this.searchQuery) return true;
+    return itemName(stack.item).toLowerCase().includes(this.searchQuery);
   }
 
   #renderStack(slot, stack) {
@@ -870,6 +899,16 @@ export class InventoryManager {
       const textureUrl = texture ? this.#getTextureUrl(texture) : null;
       if (textureUrl) {
         element.style.setProperty("--block-texture", `url("${textureUrl}")`);
+        const textureName = this.#getBlockTextureName(item, faceIndexes[face]);
+        const tile = textureName ? BLOCK_TEXTURE_ATLAS[textureName] : null;
+        if (tile && texture?.image === this.textures.atlas?.image) {
+          element.classList.add("atlas-face");
+          const lastGridIndex = TEXTURE_ATLAS_GRID_SIZE - 1;
+          element.style.setProperty(
+            "--atlas-position",
+            `${(tile.x / lastGridIndex) * 100}% ${(tile.y / lastGridIndex) * 100}%`,
+          );
+        }
         hasTexture = true;
       }
       isoBlock.append(element);
@@ -883,9 +922,23 @@ export class InventoryManager {
     return isoBlock;
   }
 
+  #getBlockTextureName(item, faceIndex) {
+    if (!Number.isInteger(item)) return null;
+    const block = BLOCKS_BY_ID.get(item);
+    if (!block) return null;
+    return Array.isArray(block.textures)
+      ? block.textures[faceIndex] ?? block.textures[0]
+      : block.textures;
+  }
+
   #getTextureUrl(texture) {
     const cached = this.textureUrls.get(texture);
     if (cached) return cached;
+    const sourceUrl = texture.image?.currentSrc || texture.image?.src;
+    if (sourceUrl) {
+      this.textureUrls.set(texture, sourceUrl);
+      return sourceUrl;
+    }
     if (typeof texture.image?.toDataURL === "function") {
       const url = texture.image.toDataURL();
       this.textureUrls.set(texture, url);
@@ -1242,6 +1295,7 @@ export class InventoryManager {
       if (stack.count === 0) this.craftingItems[index] = null;
     }
     this.addItem(item, amount);
+    this.questSystem?.trackCraft(item);
     if (isTool(item)) this.selectedTool = item;
     this.messageElement.textContent = `Crafted ${itemName(item)}.`;
     this.render();

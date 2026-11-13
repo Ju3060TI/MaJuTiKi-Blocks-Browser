@@ -1,6 +1,7 @@
 import { createNoise2D, createNoise3D } from "simplex-noise";
 import { BLOCK_COUNT, BLOCKS, BLOCK_NAMES, BlockType } from "./blocks.js";
-import { generateVillage } from "./Structures.js";
+import { BIOME_REGISTRY, getBiomeSurfaceForWeights, getBiomeWeightsFromClimate } from "./BiomeRegistry.js";
+import { generateDungeon, generateVillage } from "./Structures.js";
 
 export { BLOCK_COUNT, BLOCKS, BLOCK_NAMES, BlockType };
 
@@ -113,19 +114,20 @@ export class WorldGenerator {
   }
 
   getContinentalnessAt(worldX, worldZ) {
-    return this.continentalness(worldX * 0.006, worldZ * 0.006);
+    return this.continentalness(worldX * 0.0028, worldZ * 0.0028) * 0.78 +
+      this.continentalness(worldX * 0.0075 + 23, worldZ * 0.0075 - 17) * 0.22;
   }
 
   getErosionAt(worldX, worldZ) {
-    return this.erosion(worldX * 0.025 + 31, worldZ * 0.025 - 17);
+    return this.erosion(worldX * 0.012 + 31, worldZ * 0.012 - 17);
   }
 
   getPeaksAt(worldX, worldZ) {
-    return this.peaks(worldX * 0.018 - 47, worldZ * 0.018 + 29);
+    return this.peaks(worldX * 0.026 - 47, worldZ * 0.026 + 29);
   }
 
   getRiverStrengthAt(worldX, worldZ) {
-    const distance = Math.abs(this.rivers(worldX * 0.018 + 101, worldZ * 0.018 - 83));
+    const distance = Math.abs(this.rivers(worldX * 0.016 + 101, worldZ * 0.016 - 83));
     return 1 - smoothstep(0.018, 0.075, distance);
   }
 
@@ -136,7 +138,7 @@ export class WorldGenerator {
     const land = smoothstep(-0.35, 0.3, continent);
     const ruggedness = 1 - smoothstep(-0.2, 0.65, erosion);
     const mountainStrength = Math.max(0, (peaks - 0.1) / 0.9);
-    const base = SEA_LEVEL - 4 + continent * 10 + land * 2;
+    const base = SEA_LEVEL - 4 + continent * 12 + land * 3;
     const hills = erosion * (1.5 + ruggedness * 3);
     const mountains = land * ruggedness * mountainStrength * mountainStrength * 28;
     const naturalHeight = base + hills + mountains;
@@ -210,7 +212,7 @@ export class WorldGenerator {
       ["desert", BlockType.SAND],
       ["savanna", BlockType.SAVANNA_GRASS],
       ["cherry_grove", BlockType.CHERRY_GRASS],
-      ["swamp", BlockType.GRASS],
+      ["swamp", BlockType.SWAMP_GRASS],
       ["forest", BlockType.GRASS],
     ]) {
       threshold += weights[biome];
@@ -230,8 +232,7 @@ export class WorldGenerator {
         const worldZ = chunkZ * CHUNK_SIZE + z;
         const height = this.getHeightAt(worldX, worldZ);
         const waterLevel = this.getWaterLevelAt(worldX, worldZ);
-        const swampBlend = this.getBiomeWeightsAt(worldX, worldZ).swamp;
-        const fluidType = swampBlend > 0.55 ? BlockType.OIL : BlockType.WATER;
+        const fluidType = BlockType.WATER;
         const surface = this.getSurfaceBlockAt(worldX, worldZ);
         heightMap[x * CHUNK_SIZE + z] = { height, surface, waterLevel };
         for (let localY = 0; localY < CHUNK_SIZE; localY += 1) {
@@ -397,11 +398,12 @@ export class WorldGenerator {
         const biome = this.getBiomeAt(worldX, worldZ);
         const isSavanna = biome === "savanna";
         const isCherryGrove = biome === "cherry_grove";
+        const isSwamp = biome === "swamp";
         if (
-          (!isSavanna && !isCherryGrove && biome !== "forest") ||
+          (!isSavanna && !isCherryGrove && !isSwamp && biome !== "forest") ||
           hash2D(worldX, worldZ, 0x7f4a7c15) >
-            (isSavanna ? 0.012 : isCherryGrove ? 0.032 : 0.045) ||
-          this.getWaterLevelAt(worldX, worldZ) > this.getHeightAt(worldX, worldZ)
+            (isSavanna ? 0.012 : isCherryGrove ? 0.032 : isSwamp ? 0.008 : 0.045) ||
+          (!isSwamp && this.getWaterLevelAt(worldX, worldZ) > this.getHeightAt(worldX, worldZ))
         ) {
           continue;
         }
@@ -418,7 +420,9 @@ export class WorldGenerator {
           ? BlockType.ACACIA_LOG
           : isCherryGrove
             ? BlockType.CHERRY_LOG
-            : BlockType.WOOD;
+            : isSwamp
+              ? BlockType.OAK_LOG
+              : BlockType.WOOD;
 
         for (let worldY = trunkStart; worldY <= crownY; worldY += 1) {
           if (worldX < chunkX * CHUNK_SIZE || worldX >= (chunkX + 1) * CHUNK_SIZE) continue;
@@ -427,7 +431,9 @@ export class WorldGenerator {
           blocks[blockIndex(localX, worldY - yStart, localZ)] = trunkBlock;
         }
 
-        if (isSavanna) {
+        if (isSwamp) {
+          this.#placeDeadBranches(blocks, worldX, worldZ, crownY, chunkX, chunkY, chunkZ);
+        } else if (isSavanna) {
           const direction = hash2D(worldX, worldZ, 0x52f1) > 0.5 ? 1 : -1;
           for (let step = 1; step <= 2; step += 1) {
             const branchX = worldX + direction * step;
@@ -475,6 +481,35 @@ export class WorldGenerator {
             chunkZ,
           );
         }
+      }
+    }
+  }
+
+  #placeDeadBranches(blocks, worldX, worldZ, crownY, chunkX, chunkY, chunkZ) {
+    const yStart = chunkY * CHUNK_SIZE;
+    const yEnd = yStart + CHUNK_SIZE;
+    const branches = [
+      { dx: hash2D(worldX, worldZ, 0x4211) > 0.5 ? 1 : -1, dz: 0, y: crownY - 1 },
+      { dx: 0, dz: hash2D(worldX, worldZ, 0x4212) > 0.5 ? 1 : -1, y: crownY - 2 },
+    ];
+    for (const { dx, dz, y } of branches) {
+      for (let step = 1; step <= 2; step += 1) {
+        const branchX = worldX + dx * step;
+        const branchZ = worldZ + dz * step;
+        const branchY = y + (step === 2 ? 1 : 0);
+        const localX = branchX - chunkX * CHUNK_SIZE;
+        const localZ = branchZ - chunkZ * CHUNK_SIZE;
+        if (
+          localX < 0 ||
+          localX >= CHUNK_SIZE ||
+          localZ < 0 ||
+          localZ >= CHUNK_SIZE ||
+          branchY < yStart ||
+          branchY >= yEnd
+        ) {
+          continue;
+        }
+        blocks[blockIndex(localX, branchY - yStart, localZ)] = BlockType.OAK_LOG;
       }
     }
   }
@@ -575,6 +610,7 @@ export class WorldGenerator {
           plant = BlockType.CHERRY_PETALS;
         } else if (
           (surface === BlockType.GRASS ||
+            surface === BlockType.SWAMP_GRASS ||
             surface === BlockType.CHERRY_GRASS ||
             surface === BlockType.SAVANNA_GRASS) &&
           roll < 0.2

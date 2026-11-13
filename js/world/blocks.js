@@ -190,6 +190,9 @@ const additionalBlocks = [
   ["CHERRY_GRASS", "Cherry Grove Grass", true, [
     "grassSide", "grassSide", "cherryGrassTop", "dirt", "grassSide", "grassSide",
   ], 0.6, 0],
+  ["SWAMP_GRASS", "Swamp Grass", true, [
+    "swampGrassSide", "swampGrassSide", "swampGrassTop", "mud", "swampGrassSide", "swampGrassSide",
+  ], 0.6, 0],
   ["SAVANNA_GRASS", "Savanna Grass", true, [
     "grassSide", "grassSide", "savannaGrassTop", "dirt", "grassSide", "grassSide",
   ], 0.6, 0],
@@ -239,6 +242,33 @@ const generatedBlocks = Object.fromEntries(
 
 export const BLOCKS = Object.freeze({ ...existingBlocks, ...generatedBlocks });
 
+export const TEXTURE_ATLAS_GRID_SIZE = 16;
+const blockTextureNames = [
+  ...new Set(
+    Object.values(BLOCKS).flatMap((block) =>
+      Array.isArray(block.textures) ? block.textures : [block.textures],
+    ).filter(Boolean),
+  ),
+];
+
+if (blockTextureNames.length > TEXTURE_ATLAS_GRID_SIZE ** 2) {
+  throw new Error("Block textures exceed the 16x16 texture atlas capacity.");
+}
+
+export const BLOCK_TEXTURE_ATLAS = Object.freeze(
+  Object.fromEntries(
+    blockTextureNames.map((name, index) => [
+      name,
+      Object.freeze({
+        x: index % TEXTURE_ATLAS_GRID_SIZE,
+        y: Math.floor(index / TEXTURE_ATLAS_GRID_SIZE),
+        width: 1,
+        height: 1,
+      }),
+    ]),
+  ),
+);
+
 const blockIds = Object.values(BLOCKS).map((block) => block.id);
 if (new Set(blockIds).size !== blockIds.length) {
   throw new Error("Block IDs must be unique.");
@@ -273,4 +303,6 @@ export const ITEMS = Object.freeze({
   IRON_CHESTPLATE: "ironChestplate",
   DIAMOND_CHESTPLATE: "diamondChestplate",
   MAGIC_WAND: "magicWand",
+  EMPTY_BUCKET: "emptyBucket",
+  WATER_BUCKET: "waterBucket",
 });

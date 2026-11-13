@@ -8,11 +8,11 @@ import {
   UnsignedByteType,
 } from "three";
 import { BLOCK_COUNT, BLOCKS } from "./blocks.js";
+import { TextureAtlas } from "./TextureAtlas.js";
 
 const TEXTURE_SIZE = 32;
 const DESIGN_SIZE = 16;
 const DRAW_SCALE = TEXTURE_SIZE / DESIGN_SIZE;
-const FACE_BRIGHTNESS = [0.8, 0.8, 1, 0.6, 0.8, 0.8];
 const TRANSPARENT_PATTERNS = new Set([
   "glass",
   "grassPlant",
@@ -21,7 +21,6 @@ const TRANSPARENT_PATTERNS = new Set([
   "cherryPetals",
   "sapling",
 ]);
-const shadedTextureCache = new WeakMap();
 function parseColor(value) {
   if (value.startsWith("#")) {
     const hex = value.slice(1);
@@ -231,39 +230,6 @@ function makeTextureTileable(data) {
   }
 }
 
-function shadeTexture(texture, brightness) {
-  if (brightness === 1) return texture;
-  let variants = shadedTextureCache.get(texture);
-  if (!variants) {
-    variants = new Map();
-    shadedTextureCache.set(texture, variants);
-  }
-  if (variants.has(brightness)) return variants.get(brightness);
-
-  const shadedPixels = new Uint8Array(texture.image.data);
-  for (let index = 0; index < shadedPixels.length; index += 4) {
-    shadedPixels[index] *= brightness;
-    shadedPixels[index + 1] *= brightness;
-    shadedPixels[index + 2] *= brightness;
-  }
-  const shadedTexture = new DataTexture(
-    shadedPixels,
-    TEXTURE_SIZE,
-    TEXTURE_SIZE,
-    RGBAFormat,
-    UnsignedByteType,
-  );
-  shadedTexture.magFilter = NearestFilter;
-  shadedTexture.minFilter = NearestMipmapNearestFilter;
-  shadedTexture.generateMipmaps = true;
-  shadedTexture.colorSpace = SRGBColorSpace;
-  shadedTexture.wrapS = texture.wrapS;
-  shadedTexture.wrapT = texture.wrapT;
-  shadedTexture.needsUpdate = true;
-  variants.set(brightness, shadedTexture);
-  return shadedTexture;
-}
-
 export function drawTexture(baseColor, noiseColor, pattern = {}) {
   const options = typeof pattern === "string" ? { kind: pattern } : pattern;
   const kind = options.kind ?? "noise";
@@ -279,7 +245,9 @@ export function drawTexture(baseColor, noiseColor, pattern = {}) {
       context.fillRect(0, 0, DESIGN_SIZE, DESIGN_SIZE);
     }
     for (let index = 0;
-      !TRANSPARENT_PATTERNS.has(kind) && kind !== "stone" && index < 152;
+      !TRANSPARENT_PATTERNS.has(kind) &&
+      !["stone", "dirt", "grassTop", "grassSide", "swampGrassSide", "water", "lava"].includes(kind) &&
+      index < 152;
       index += 1) {
       context.fillStyle = noiseColor;
       const size = 1 + Math.floor(random() * 2);
@@ -397,18 +365,18 @@ export function drawTexture(baseColor, noiseColor, pattern = {}) {
       case "dirt":
       case "stone":
         if (kind === "dirt") {
-          for (let index = 0; index < 58; index += 1) {
-            context.fillStyle =
-              index % 3 === 0
-                ? "rgba(255, 255, 255, 0.12)"
-                : "rgba(0, 0, 0, 0.14)";
-            const size = random() < 0.12 ? 2 : 1;
-            context.fillRect(
-              Math.floor(random() * DESIGN_SIZE),
-              Math.floor(random() * DESIGN_SIZE),
-              size,
-              size,
-            );
+          for (let cluster = 0; cluster < 44; cluster += 1) {
+            const centerX = Math.floor(random() * TEXTURE_SIZE);
+            const centerY = Math.floor(random() * TEXTURE_SIZE);
+            const size = 1 + Math.floor(random() * 3);
+            context.fillStyle = cluster % 3 === 0
+              ? "rgba(198, 151, 105, 0.28)"
+              : "rgba(39, 25, 16, 0.24)";
+            context.fillRect(centerX, centerY, size, size);
+            if (random() > 0.42) {
+              context.fillRect(centerX + size, centerY, 1, size);
+              context.fillRect(centerX, centerY + size, size, 1);
+            }
           }
         }
         if (kind === "stone") {
@@ -424,15 +392,20 @@ export function drawTexture(baseColor, noiseColor, pattern = {}) {
         }
         break;
       case "grassTop":
-        for (let index = 0; index < 132; index += 1) {
-          context.fillStyle =
-            index % 2 ? "rgba(255, 255, 255, 0.16)" : "rgba(0, 0, 0, 0.14)";
+        for (let cluster = 0; cluster < 52; cluster += 1) {
+          const x = Math.floor(random() * DESIGN_SIZE);
+          const y = Math.floor(random() * DESIGN_SIZE);
+          const size = random() < 0.18 ? 3 : 1 + Math.floor(random() * 2);
+          context.fillStyle = cluster % 2
+            ? "rgba(190, 226, 116, 0.32)"
+            : "rgba(34, 77, 24, 0.3)";
           context.fillRect(
-            Math.floor(random() * DESIGN_SIZE),
-            Math.floor(random() * DESIGN_SIZE),
-            random() < 0.12 ? 2 : 1,
-            1,
+            x,
+            y,
+            size,
+            1 + Math.floor(random() * 2),
           );
+          if (random() > 0.5) context.fillRect(x + size, y + 1, 1, 1);
         }
         break;
       case "grassSide":
@@ -448,6 +421,17 @@ export function drawTexture(baseColor, noiseColor, pattern = {}) {
         for (let index = 0; index < 22; index += 1) {
           context.fillStyle = index % 2 ? "#70bd3e" : "#438326";
           context.fillRect(Math.floor(random() * DESIGN_SIZE), Math.floor(random() * 4), 1, 1);
+        }
+        break;
+      case "swampGrassSide":
+        for (let x = 0; x < DESIGN_SIZE; x += 1) {
+          const edge = 2 + Math.floor(random() * 3);
+          context.fillStyle = "#365b2d";
+          context.fillRect(x, 0, 1, edge);
+          if (random() > 0.38) {
+            context.fillStyle = "#294725";
+            context.fillRect(x, edge - 1, 1, 1 + Math.floor(random() * 3));
+          }
         }
         break;
       case "grassPlant":
@@ -548,9 +532,42 @@ export function drawTexture(baseColor, noiseColor, pattern = {}) {
         for (let y = 2; y < DESIGN_SIZE; y += 3) context.fillRect(0, y, DESIGN_SIZE, 1);
         break;
       case "water":
-        context.fillStyle = "rgba(205, 239, 255, 0.65)";
-        for (let y = 3; y < DESIGN_SIZE; y += 3) {
-          context.fillRect(0, y, DESIGN_SIZE, 1);
+        for (let y = 1; y < TEXTURE_SIZE; y += 5) {
+          context.fillStyle = y % 2 ? "rgba(8, 39, 83, 0.2)" : "rgba(9, 47, 91, 0.34)";
+          context.fillRect(0, y, TEXTURE_SIZE, 2);
+          const rippleX = Math.floor(random() * TEXTURE_SIZE);
+          context.fillStyle = "rgba(190, 232, 255, 0.54)";
+          context.fillRect(rippleX, y, 3 + Math.floor(random() * 5), 1);
+        }
+        for (let patch = 0; patch < 32; patch += 1) {
+          context.fillStyle = patch % 2
+            ? "rgba(4, 33, 72, 0.2)"
+            : "rgba(113, 188, 225, 0.16)";
+          context.fillRect(
+            Math.floor(random() * TEXTURE_SIZE),
+            Math.floor(random() * TEXTURE_SIZE),
+            1 + Math.floor(random() * 3),
+            1 + Math.floor(random() * 2),
+          );
+        }
+        break;
+      case "lava":
+        for (let band = 0; band < 8; band += 1) {
+          const x = Math.floor(random() * DESIGN_SIZE);
+          const y = Math.floor(random() * DESIGN_SIZE);
+          const radius = 1 + random() * 2.2;
+          context.fillStyle = band % 2
+            ? "rgba(255, 209, 58, 0.5)"
+            : "rgba(103, 20, 7, 0.55)";
+          context.beginPath();
+          context.arc(x, y, radius, 0, Math.PI * 2);
+          context.closePath();
+          context.fill();
+          context.strokeStyle = "rgba(255, 244, 133, 0.82)";
+          context.lineWidth = 0.7;
+          context.beginPath();
+          context.arc(x - 0.35, y - 0.35, radius * 0.52, Math.PI, Math.PI * 1.8);
+          context.stroke();
         }
         break;
       default:
@@ -617,69 +634,20 @@ export function createBlockTextures() {
   const stonePickaxe = createPickaxeTexture("#888888", "#704323");
   const ironPickaxe = createPickaxeTexture("#c2c7cc", "#704323");
   const crackStages = Array.from({ length: 10 }, (_, index) => createCrackTexture(index + 1));
-
-  const overrides = {
-    grassTop: ["#5eaa32", "#438326", "grassTop"],
-    grassSide: ["#80502b", "#60391f", "grassSide"],
-    dirt: ["#80502b", "#704323", "dirt"],
-    stone: ["#888888", "#696969", "stone"],
-    wood: ["#80502b", "#60391f", "wood"],
-    woodTop: ["#b17a45", "#80502b", "rings"],
-    leaves: ["#397c2b", "#2f6d25", "foliage"],
-    sand: ["#d8c47b", "#c9b36b", "noise"],
-    snow: ["#eef5fa", "#dce8f0", "noise"],
-    coalOre: ["#777777", "#242424", "ore"],
-    ironOre: ["#777777", "#b9815d", "ore"],
-    goldOre: ["#777777", "#edc442", "ore"],
-    diamondOre: ["#777777", "#35d7d2", "ore"],
-    redstoneOre: ["#777777", "#d3342d", "ore"],
-    lapisOre: ["#777777", "#3157c8", "ore"],
-    water: ["#2879bb", "#a9e3ff", "water"],
-    lava: ["#b83212", "#ffd34a", "bands"],
-    oil: ["#171b20", "#76506e", "bands"],
-    planks: ["#a87542", "#704626", "planks"],
-    cherryGrassTop: ["#78bd50", "#a5dc70", "grassTop"],
-    savannaGrassTop: ["#b5a84c", "#e4d26c", "grassTop"],
-    tallGrass: ["#4c9d38", "#81c957", "grassPlant"],
-    dryGrass: ["#b6a346", "#e2cf64", "dryGrass"],
-    dandelion: ["#f1d33d", "#fff3a1", "flower"],
-    poppy: ["#d93d3b", "#ff9470", "flower"],
-    roseBush: ["#cb4670", "#f38aa7", "flower"],
-    cherryPetals: ["#ed91bb", "#ffd5e7", "cherryPetals"],
-    oakSapling: ["#438a38", "#82bf52", "sapling"],
-    acaciaSapling: ["#a9a54c", "#d0bf67", "sapling"],
-    cherrySapling: ["#df78a5", "#f5b5cf", "sapling"],
-    cherryLeaves: ["#e68ab3", "#f8b5d0", "foliage"],
-  };
-  const blockEntries = Object.entries(BLOCKS);
-  const textureSources = new Map();
-  for (const [key, block] of blockEntries) {
-    if (block.id === BLOCKS.AIR.id) continue;
-    const names = Array.isArray(block.textures) ? block.textures : [block.textures];
-    for (const name of names) {
-      if (name && !textureSources.has(name)) textureSources.set(name, { key, block });
-    }
-  }
-
+  const atlas = new TextureAtlas();
+  const atlasTexture = atlas.texture;
+  const waterTexture = atlasTexture.clone();
+  const lavaTexture = atlasTexture.clone();
+  // Fluid UVs already target atlas tiles; legacy texture offsets must not shift the full atlas.
+  waterTexture.matrixAutoUpdate = false;
+  lavaTexture.matrixAutoUpdate = false;
   const textures = {
     woodenPickaxe,
     stonePickaxe,
     ironPickaxe,
     crackStages,
+    atlas: atlasTexture,
   };
-  for (const [textureName, { key, block }] of textureSources) {
-    const [baseColor, noiseColor, pattern] = getBlockStyle(key, textureName, block.id, overrides);
-    const texture = drawTexture(baseColor, noiseColor, {
-      kind: pattern,
-      seed: block.id * 7919 + textureName.length * 101,
-    });
-    if (textureName === "water") {
-      texture.wrapS = RepeatWrapping;
-      texture.wrapT = RepeatWrapping;
-      texture.needsUpdate = true;
-    }
-    textures[textureName] = texture;
-  }
 
   const blockTextures = Array(BLOCK_COUNT).fill(null);
   for (const block of Object.values(BLOCKS)) {
@@ -687,71 +655,18 @@ export function createBlockTextures() {
     const textureNames = Array.isArray(block.textures)
       ? block.textures
       : Array(6).fill(block.textures);
-    blockTextures[block.id] = textureNames.map((name, faceIndex) => {
-      const texture = textures[name];
-      if (!texture) throw new Error(`Missing texture "${name}" for ${block.name}.`);
-      return shadeTexture(texture, FACE_BRIGHTNESS[faceIndex] ?? 0.8);
-    });
+    const texture = block.id === BLOCKS.WATER.id
+      ? waterTexture
+      : block.id === BLOCKS.LAVA.id
+        ? lavaTexture
+        : atlasTexture;
+    blockTextures[block.id] = textureNames.map(() => texture);
   }
 
   return {
     ...textures,
+    water: waterTexture,
+    lava: lavaTexture,
     blockTextures,
   };
-}
-
-function getBlockStyle(key, textureName, id, overrides) {
-  if (overrides[textureName]) return overrides[textureName];
-
-  const name = key.toLowerCase();
-  const seed = id * 47 + textureName.length * 13;
-  const hue = seed % 360;
-  const color = (saturation, lightness) => `hsl(${hue} ${saturation}% ${lightness}%)`;
-  if (name.includes("ore")) {
-    const oreColors = {
-      copper: "#c77742",
-      emerald: "#39b96b",
-      quartz: "#eee7da",
-    };
-    const oreColor = Object.entries(oreColors).find(([ore]) => name.includes(ore))?.[1] ?? color(75, 58);
-    return ["#777777", oreColor, "ore"];
-  }
-  if (name.includes("log")) return [color(38, 38), color(30, 25), "wood"];
-  if (name.includes("planks")) return [color(44, 52), color(42, 34), "planks"];
-  if (name.includes("leaves") || name.includes("grass")) return [color(50, 38), color(56, 28), "foliage"];
-  if (name.includes("wool")) return [color(30, 78), color(24, 58), "dots"];
-  if (name.includes("glass") || name.includes("ice")) return ["#9edbea", "#e1fbff", "glass"];
-  if (name.includes("brick") || name.includes("tile")) return [color(34, 48), color(25, 30), "bricks"];
-  if (name.includes("block")) return [color(42, 55), color(35, 38), "tiles"];
-  if (name.includes("torch") || name.includes("lantern") || name.includes("glowstone")) {
-    return ["#e3b857", "#fff1a1", "dots"];
-  }
-  if (name.includes("sand")) return ["#d8bf7b", "#b99f5f", "noise"];
-  if (name.includes("snow") || name.includes("calcite") || name.includes("quartz")) {
-    return ["#e8e8df", "#c8cbc9", "noise"];
-  }
-  if (name.includes("copper")) return ["#b96d46", "#d99a68", "ore"];
-  if (name.includes("gold")) return ["#d8aa32", "#f0ca55", "tiles"];
-  if (name.includes("diamond")) return ["#45c8c2", "#9cf5e8", "tiles"];
-  if (name.includes("emerald")) return ["#279b55", "#72dc89", "tiles"];
-  if (name.includes("lapis")) return ["#29478f", "#547bd1", "tiles"];
-  if (name.includes("redstone") || name.includes("red_sand") || name.includes("red_wool")) {
-    return ["#a94632", "#d96d43", "ore"];
-  }
-  if (name.includes("water") || name.includes("prismarine")) return ["#347f91", "#69b2b5", "bands"];
-  if (name.includes("lava") || name.includes("pumpkin")) return ["#bd4a20", "#ed8b2f", "dots"];
-  if (name.includes("coal")) return ["#323638", "#111516", "tiles"];
-  if (name.includes("bedrock") || name.includes("basalt") || name.includes("obsidian")) {
-    return ["#292c33", "#111318", "cobble"];
-  }
-  if (name.includes("cobble") || name.includes("stone") || name.includes("andesite") || name.includes("diorite")) {
-    return ["#81858a", "#565a5e", "cobble"];
-  }
-  if (name.includes("dirt") || name.includes("mud") || name.includes("clay")) {
-    return ["#79533b", "#563a2c", "noise"];
-  }
-  if (name.includes("wood") || name.includes("chest") || name.includes("crafting")) {
-    return ["#94613a", "#644126", "planks"];
-  }
-  return [color(42, 52), color(35, 34), "noise"];
 }

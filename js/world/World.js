@@ -8,6 +8,7 @@ import {
   MeshLambertMaterial,
   Object3D,
   SRGBColorSpace,
+  Float32BufferAttribute,
 } from "three";
 import { Chunk } from "./Chunk.js";
 import { ItemDrop } from "../entities/ItemDrop.js";
@@ -81,12 +82,28 @@ export class World {
       ]),
     );
     this.itemDrops = [];
+    this.activeFluidPositions = new Set();
+    this.fluidTickElapsed = 0;
+    this.fluidTickInterval = 1.5;
+    this.isTickingFluids = false;
+    this.fluidTickChangedPositions = new Set();
     this.geometry = new BoxGeometry(1, 1, 1);
+    this.geometry.setAttribute(
+      "color",
+      new Float32BufferAttribute(new Float32Array(this.geometry.attributes.position.count * 3).fill(1), 3),
+    );
     this.lodMaterial = new MeshLambertMaterial({ color: 0xffffff });
+    const settings = typeof window === "undefined"
+      ? {}
+      : window.gameSettings ?? window.settings ?? {};
+    this.fancyLeaves = settings.fancyLeaves !== false;
+    this.smoothLighting = settings.smoothLighting !== false;
     this.materials = this.#createMaterials();
     this.lodColors = this.#createLodColors();
     this.waterTextures = new Set(this.textures.blockTextures[BLOCKS.WATER.id]);
+    this.lavaTextures = new Set(this.textures.blockTextures[BLOCKS.LAVA.id]);
     this.waterAnimationOffset = 0;
+    this.lavaAnimationOffset = 0;
     this.miningMaterials = this.textures.crackStages.map((texture) =>
       Array.from(
         { length: 6 },
@@ -110,9 +127,6 @@ export class World {
     this.centerChunkX = Number.NaN;
     this.centerChunkZ = Number.NaN;
     this.lastPosition = { x: 0, z: 0 };
-    const settings = typeof window === "undefined"
-      ? {}
-      : window.gameSettings ?? window.settings ?? {};
     this.renderDistance = normalizeRenderDistance(
       settings.renderDistance ?? 4,
     );
@@ -123,6 +137,12 @@ export class World {
       }
       if (event.detail?.lodDistance !== undefined) {
         this.setLodDistance(event.detail.lodDistance);
+      }
+      if (event.detail?.fancyLeaves !== undefined) {
+        this.setFancyLeaves(event.detail.fancyLeaves);
+      }
+      if (event.detail?.smoothLighting !== undefined) {
+        this.setSmoothLighting(event.detail.smoothLighting);
       }
     };
     if (typeof window !== "undefined") {
@@ -157,6 +177,41 @@ export class World {
     this.#updateDetailVisibility();
   }
 
+  setFancyLeaves(enabled) {
+    const nextValue = Boolean(enabled);
+    if (nextValue === this.fancyLeaves) return;
+    for (const chunk of this.chunks.values()) chunk.disposeMeshes();
+    this.fancyLeaves = nextValue;
+    for (const block of Object.values(BLOCKS)) {
+      if (!block.name.endsWith("Leaves")) continue;
+      for (const material of this.materials[block.id]) material.dispose();
+      this.materials[block.id] = this.#createBlockMaterials(block);
+    }
+    for (const drop of this.itemDrops) {
+      if (BLOCKS_BY_ID[drop.item]?.name.endsWith("Leaves")) {
+        drop.mesh.material = this.materials[drop.item];
+      }
+    }
+    if (typeof window !== "undefined") {
+      window.gameSettings ??= window.settings ?? {};
+      window.gameSettings.fancyLeaves = nextValue;
+      window.settings = window.gameSettings;
+    }
+    for (const chunk of this.chunks.values()) chunk.rebuild();
+  }
+
+  setSmoothLighting(enabled) {
+    const nextValue = Boolean(enabled);
+    if (nextValue === this.smoothLighting) return;
+    this.smoothLighting = nextValue;
+    if (typeof window !== "undefined") {
+      window.gameSettings ??= window.settings ?? {};
+      window.gameSettings.smoothLighting = nextValue;
+      window.settings = window.gameSettings;
+    }
+    for (const chunk of this.chunks.values()) chunk.rebuild();
+  }
+
   getBlockAt(x, y, z) {
     const worldX = Math.floor(x);
     const worldY = Math.floor(y);
@@ -180,6 +235,23 @@ export class World {
     return BLOCKS_BY_ID[this.getBlockAt(x, y, z)]?.isSolid ?? false;
   }
 
+  getFluidLevelAt(x, y, z) {
+    const worldX = Math.floor(x);
+    const worldY = Math.floor(y);
+    const worldZ = Math.floor(z);
+    if (worldY < 0 || worldY >= WORLD_HEIGHT) return 0;
+    const chunkX = Math.floor(worldX / CHUNK_SIZE);
+    const chunkY = Math.floor(worldY / CHUNK_SIZE);
+    const chunkZ = Math.floor(worldZ / CHUNK_SIZE);
+    const chunk = this.chunks.get(chunkKey(chunkX, chunkY, chunkZ));
+    if (!chunk) return 0;
+    return chunk.getFluidLevel(
+      worldX - chunkX * CHUNK_SIZE,
+      worldY - chunkY * CHUNK_SIZE,
+      worldZ - chunkZ * CHUNK_SIZE,
+    );
+  }
+
   getMeshes() {
     const meshes = [];
     for (const chunk of this.chunks.values()) {
@@ -190,22 +262,40 @@ export class World {
     return meshes;
   }
 
-  setBlockAt(x, y, z, type) {
+  setBlockAt(x, y, z, type, fluidLevel = 7) {
     const worldX = Math.floor(x);
     const worldY = Math.floor(y);
     const worldZ = Math.floor(z);
     if (worldY < 0 || worldY >= WORLD_HEIGHT) return false;
+    const block = BLOCKS_BY_ID[type];
+    if (!block) throw new RangeError(`Unknown block type: ${type}`);
+    if (
+      block.isFluid &&
+      (!Number.isInteger(fluidLevel) || fluidLevel < 0 || fluidLevel > 7)
+    ) {
+      throw new RangeError("Fluid level must be an integer from 0 to 7.");
+    }
     const chunkX = Math.floor(worldX / CHUNK_SIZE);
     const chunkY = Math.floor(worldY / CHUNK_SIZE);
     const chunkZ = Math.floor(worldZ / CHUNK_SIZE);
     const chunk = this.chunks.get(chunkKey(chunkX, chunkY, chunkZ));
     if (!chunk) return false;
 
+    const localX = worldX - chunkX * CHUNK_SIZE;
+    const localY = worldY - chunkY * CHUNK_SIZE;
+    const localZ = worldZ - chunkZ * CHUNK_SIZE;
+    if (
+      chunk.getBlock(localX, localY, localZ) === type &&
+      (!block.isFluid || chunk.getFluidLevel(localX, localY, localZ) === fluidLevel)
+    ) {
+      return true;
+    }
     chunk.setBlock(
-      worldX - chunkX * CHUNK_SIZE,
-      worldY - chunkY * CHUNK_SIZE,
-      worldZ - chunkZ * CHUNK_SIZE,
+      localX,
+      localY,
+      localZ,
       type,
+      fluidLevel,
     );
     const key = chunkKey(chunkX, chunkY, chunkZ);
     let edits = this.blockEdits.get(key);
@@ -214,16 +304,17 @@ export class World {
       this.blockEdits.set(key, edits);
     }
     edits.set(
-      getBlockIndex(
-        worldX - chunkX * CHUNK_SIZE,
-        worldY - chunkY * CHUNK_SIZE,
-        worldZ - chunkZ * CHUNK_SIZE,
-      ),
+      getBlockIndex(localX, localY, localZ),
       type,
     );
-    this.#rebuildAround(worldX, worldY, worldZ);
-    this.#rebuildLodForColumn(chunkX, chunkZ);
-    this.#updateDetailVisibility();
+    this.#queueFluidAndNeighbors(worldX, worldY, worldZ);
+    if (this.isTickingFluids) {
+      this.fluidTickChangedPositions.add(`${worldX},${worldY},${worldZ}`);
+    } else {
+      this.#rebuildAround(worldX, worldY, worldZ);
+      this.#rebuildLodForColumn(chunkX, chunkZ);
+      this.#updateDetailVisibility();
+    }
     return true;
   }
 
@@ -285,7 +376,6 @@ export class World {
     ) {
       return BLOCKS.AIR.id;
     }
-    this.#flowFluidInto(Math.floor(x), Math.floor(y), Math.floor(z));
     return type;
   }
 
@@ -304,80 +394,121 @@ export class World {
     }
   }
 
-  #flowFluidInto(x, y, z) {
-    if (this.getBlockAt(x, y, z) !== BLOCKS.AIR.id) return;
-
-    if (this.getBlockAt(x, y + 1, z) === BLOCKS.WATER.id) {
-      const bottomY = this.#flowWaterDown(x, y, z);
-      this.#spreadWaterHorizontally(x, bottomY, z, 4);
-      return;
-    }
-
-    if (this.getBlockAt(x, y - 1, z) === BLOCKS.WATER.id) return;
-    if (this.isSolidAt(x, y - 1, z)) {
-      const hasSideWater = HORIZONTAL_DIRECTIONS.some(([dx, dz]) =>
-        this.getBlockAt(x + dx, y, z + dz) === BLOCKS.WATER.id,
-      );
-      if (hasSideWater) {
-        this.setBlockAt(x, y, z, BLOCKS.WATER.id);
-        this.#spreadWaterHorizontally(x, y, z, 3);
+  #queueFluidAndNeighbors(x, y, z) {
+    const queueIfFluid = (blockX, blockY, blockZ) => {
+      if (BLOCKS_BY_ID[this.getBlockAt(blockX, blockY, blockZ)]?.isFluid) {
+        this.activeFluidPositions.add(`${blockX},${blockY},${blockZ}`);
       }
-      return;
-    }
-
-    const adjacentLava = [
-      [x, y + 1, z],
-      [x - 1, y, z],
-      [x + 1, y, z],
-      [x, y, z - 1],
-      [x, y, z + 1],
-      [x, y - 1, z],
-    ];
-    for (const [neighborX, neighborY, neighborZ] of adjacentLava) {
-      if (this.getBlockAt(neighborX, neighborY, neighborZ) !== BLOCKS.LAVA.id) continue;
-      this.setBlockAt(x, y, z, BLOCKS.LAVA.id);
-      return;
+    };
+    queueIfFluid(x, y, z);
+    for (const [dx, dy, dz] of CHUNK_DIRECTIONS) {
+      queueIfFluid(x + dx, y + dy, z + dz);
     }
   }
 
-  #flowWaterDown(x, y, z) {
-    let currentY = y;
-    while (
-      currentY >= 0 &&
-      this.getBlockAt(x, currentY, z) === BLOCKS.AIR.id
+  #activateChunkFluids(chunk) {
+    const worldXStart = chunk.chunkX * CHUNK_SIZE;
+    const worldYStart = chunk.chunkY * CHUNK_SIZE;
+    const worldZStart = chunk.chunkZ * CHUNK_SIZE;
+    for (let index = 0; index < chunk.blocks.length; index += 1) {
+      const block = BLOCKS_BY_ID[chunk.blocks[index]];
+      if (!block?.isFluid) continue;
+      const z = index % CHUNK_SIZE;
+      const y = Math.floor(index / CHUNK_SIZE) % CHUNK_SIZE;
+      const x = Math.floor(index / (CHUNK_SIZE * CHUNK_SIZE));
+      const worldX = worldXStart + x;
+      const worldY = worldYStart + y;
+      const worldZ = worldZStart + z;
+      const hasOpenFlowPath =
+        this.getBlockAt(worldX, worldY - 1, worldZ) === BLOCKS.AIR.id ||
+        HORIZONTAL_DIRECTIONS.some(([dx, dz]) =>
+          this.getBlockAt(worldX + dx, worldY, worldZ + dz) === BLOCKS.AIR.id,
+        );
+      if (hasOpenFlowPath) {
+        this.activeFluidPositions.add(`${worldX},${worldY},${worldZ}`);
+      }
+    }
+  }
+
+  #tickFluids(deltaSeconds) {
+    this.fluidTickElapsed += deltaSeconds;
+    if (
+      this.fluidTickElapsed < this.fluidTickInterval ||
+      this.activeFluidPositions.size === 0
     ) {
-      this.setBlockAt(x, currentY, z, BLOCKS.WATER.id);
-      if (!this.isSolidAt(x, currentY - 1, z)) {
-        currentY -= 1;
-        continue;
-      }
-      break;
+      return;
     }
-    return Math.max(0, currentY);
-  }
+    this.fluidTickElapsed %= this.fluidTickInterval;
+    const activePositions = [...this.activeFluidPositions];
+    this.activeFluidPositions.clear();
+    this.isTickingFluids = true;
+    try {
+      for (const position of activePositions) {
+        const [x, y, z] = position.split(",").map(Number);
+        const type = this.getBlockAt(x, y, z);
+        if (!BLOCKS_BY_ID[type]?.isFluid) continue;
+        const level = this.getFluidLevelAt(x, y, z);
+        if (level < 1) continue;
 
-  #spreadWaterHorizontally(x, y, z, maxDistance) {
-    const queue = [{ x, z, distance: 0 }];
-    const visited = new Set([`${x},${z}`]);
-    while (queue.length > 0) {
-      const current = queue.shift();
-      if (current.distance >= maxDistance) continue;
-      for (const [dx, dz] of HORIZONTAL_DIRECTIONS) {
-        const nextX = current.x + dx;
-        const nextZ = current.z + dz;
-        const key = `${nextX},${nextZ}`;
-        if (visited.has(key)) continue;
-        visited.add(key);
-        if (
-          this.getBlockAt(nextX, y, nextZ) !== BLOCKS.AIR.id ||
-          !this.isSolidAt(nextX, y - 1, nextZ)
-        ) {
+        if (y > 0 && this.getBlockAt(x, y - 1, z) === BLOCKS.AIR.id) {
+          this.setBlockAt(
+            x,
+            y - 1,
+            z,
+            type,
+            Math.max(1, level - 1),
+          );
+          this.activeFluidPositions.add(position);
           continue;
         }
-        this.setBlockAt(nextX, y, nextZ, BLOCKS.WATER.id);
-        queue.push({ x: nextX, z: nextZ, distance: current.distance + 1 });
+
+        if (level <= 1) continue;
+        const nextLevel = level - 1;
+        for (const [dx, dz] of HORIZONTAL_DIRECTIONS) {
+          const nextX = x + dx;
+          const nextZ = z + dz;
+          if (this.getBlockAt(nextX, y, nextZ) !== BLOCKS.AIR.id) continue;
+          const flowed = this.setBlockAt(nextX, y, nextZ, type, nextLevel);
+          if (!flowed) this.activeFluidPositions.add(position);
+        }
+      }
+    } finally {
+      this.isTickingFluids = false;
+      this.#rebuildFluidChanges();
+    }
+  }
+
+  #rebuildFluidChanges() {
+    if (this.fluidTickChangedPositions.size === 0) return;
+    const affectedChunks = new Set();
+    const affectedColumns = new Set();
+    for (const position of this.fluidTickChangedPositions) {
+      const [x, y, z] = position.split(",").map(Number);
+      const chunkX = Math.floor(x / CHUNK_SIZE);
+      const chunkY = Math.floor(y / CHUNK_SIZE);
+      const chunkZ = Math.floor(z / CHUNK_SIZE);
+      const localX = x - chunkX * CHUNK_SIZE;
+      const localY = y - chunkY * CHUNK_SIZE;
+      const localZ = z - chunkZ * CHUNK_SIZE;
+      const targets = [[0, 0, 0]];
+      if (localX === 0) targets.push([-1, 0, 0]);
+      if (localX === CHUNK_SIZE - 1) targets.push([1, 0, 0]);
+      if (localY === 0) targets.push([0, -1, 0]);
+      if (localY === CHUNK_SIZE - 1) targets.push([0, 1, 0]);
+      if (localZ === 0) targets.push([0, 0, -1]);
+      if (localZ === CHUNK_SIZE - 1) targets.push([0, 0, 1]);
+      for (const [dx, dy, dz] of targets) {
+        affectedChunks.add(chunkKey(chunkX + dx, chunkY + dy, chunkZ + dz));
+        affectedColumns.add(columnKey(chunkX + dx, chunkZ + dz));
       }
     }
+    this.fluidTickChangedPositions.clear();
+    for (const key of affectedChunks) this.chunks.get(key)?.rebuild();
+    for (const key of affectedColumns) {
+      const [chunkX, chunkZ] = key.split(",").map(Number);
+      this.#rebuildLodForColumn(chunkX, chunkZ);
+    }
+    this.#updateDetailVisibility();
   }
 
   saveToStorage(storageKey = "majutiki-world-save") {
@@ -437,8 +568,9 @@ export class World {
     return { x: center + 0.5, y: groundY + 1, z: center + 0.5 };
   }
 
-  update(position) {
+  update(position, deltaSeconds = 1 / 60) {
     this.#animateWater();
+    this.#tickFluids(deltaSeconds);
     this.lastPosition = { x: position.x, z: position.z };
     const nextCenterX = Math.floor(position.x / CHUNK_SIZE);
     const nextCenterZ = Math.floor(position.z / CHUNK_SIZE);
@@ -481,6 +613,7 @@ export class World {
       for (const [index, type] of this.blockEdits.get(key) ?? []) blocks[index] = type;
       const chunk = new Chunk(this, chunkX, chunkY, chunkZ, blocks);
       this.chunks.set(key, chunk);
+      this.#activateChunkFluids(chunk);
       affected.add(key);
       for (const [dx, dy, dz] of CHUNK_DIRECTIONS) {
         const neighbor = this.chunks.get(chunkKey(chunkX + dx, chunkY + dy, chunkZ + dz));
@@ -642,23 +775,52 @@ export class World {
     const materials = Array(BLOCK_COUNT).fill(null);
     for (const block of Object.values(BLOCKS)) {
       if (block.id === BLOCKS.AIR.id) continue;
-      const faceTextures = this.textures.blockTextures[block.id];
-      if (!faceTextures) throw new Error(`Missing face textures for ${block.name}.`);
-      const materialOptions = block.id === BLOCKS.WATER.id
-        ? { ...block.materialOptions, transparent: true, opacity: 0.7, depthWrite: false }
-        : block.isCross
-          ? {
-            ...block.materialOptions,
-            transparent: true,
-            alphaTest: 0.5,
-            side: DoubleSide,
-          }
-          : block.materialOptions;
-      materials[block.id] = faceTextures.map(
-        (map) => new MeshLambertMaterial({ map, ...materialOptions }),
-      );
+      materials[block.id] = this.#createBlockMaterials(block);
     }
     return materials;
+  }
+
+  #createBlockMaterials(block) {
+    const faceTextures = this.textures.blockTextures[block.id];
+    if (!faceTextures) throw new Error(`Missing face textures for ${block.name}.`);
+    const isLeaf = block.name.endsWith("Leaves");
+    const flatLeafColor = block.name.startsWith("Spruce")
+      ? 0x526d3e
+      : block.name.startsWith("Cherry")
+        ? 0x9b6681
+        : block.name.startsWith("Birch")
+          ? 0x8da34e
+          : block.name.startsWith("Dark Oak")
+            ? 0x405e35
+            : 0x587f3a;
+    const materialOptions = block.id === BLOCKS.WATER.id
+      ? { ...block.materialOptions, transparent: true, opacity: 0.7, depthWrite: false }
+      : block.isCross
+        ? {
+          ...block.materialOptions,
+          transparent: true,
+          alphaTest: 0.5,
+          side: DoubleSide,
+        }
+        : !this.fancyLeaves && isLeaf
+          ? {
+            ...block.materialOptions,
+            transparent: false,
+            opacity: 1,
+            alphaTest: 0,
+            depthWrite: true,
+          }
+          : block.materialOptions;
+    return faceTextures.map((map) => new MeshLambertMaterial({
+      map: !this.fancyLeaves && isLeaf ? null : map,
+      color: !this.fancyLeaves && isLeaf
+        ? flatLeafColor
+        : block.id === BLOCKS.WATER.id
+          ? 0xb8e0ff
+          : 0xffffff,
+      vertexColors: true,
+      ...materialOptions,
+    }));
   }
 
   #createLodColors() {
@@ -699,5 +861,10 @@ export class World {
   #animateWater() {
     this.waterAnimationOffset = ((performance.now() / 1000) * 0.035) % 1;
     for (const texture of this.waterTextures) texture.offset.y = this.waterAnimationOffset;
+    this.lavaAnimationOffset = ((performance.now() / 1000) * 0.06) % 1;
+    for (const texture of this.lavaTextures) {
+      texture.offset.x = this.lavaAnimationOffset;
+      texture.offset.y = -this.lavaAnimationOffset * 0.65;
+    }
   }
 }
