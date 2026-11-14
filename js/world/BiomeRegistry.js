@@ -1,82 +1,61 @@
 import { BlockType } from "./blocks.js";
+import { END_BIOMES } from "./biomes/EndBiomes.js";
+import { NETHER_BIOMES } from "./biomes/NetherBiomes.js";
+import { OVERWORLD_BIOMES } from "./biomes/OverworldBiomes.js";
 
-export const BIOME_REGISTRY = Object.freeze([
-  { id: "ocean", label: "Ocean", temperature: 0.14, humidity: 0.42, surface: BlockType.SAND },
-  { id: "beach", label: "Beach", temperature: 0.2, humidity: 0.46, surface: BlockType.SAND },
-  { id: "plains", label: "Plains", temperature: 0.32, humidity: 0.52, surface: BlockType.GRASS },
-  { id: "forest", label: "Forest", temperature: 0.38, humidity: 0.62, surface: BlockType.GRASS },
-  { id: "taiga", label: "Taiga", temperature: 0.1, humidity: 0.7, surface: BlockType.SNOW },
-  { id: "tundra", label: "Tundra", temperature: -0.1, humidity: 0.58, surface: BlockType.SNOW },
-  { id: "desert", label: "Desert", temperature: 0.75, humidity: 0.12, surface: BlockType.SAND },
-  { id: "savanna", label: "Savanna", temperature: 0.68, humidity: 0.38, surface: BlockType.SAVANNA_GRASS },
-  { id: "swamp", label: "Swamp", temperature: 0.26, humidity: 0.82, surface: BlockType.SWAMP_GRASS },
-  { id: "rainforest", label: "Rainforest", temperature: 0.68, humidity: 0.9, surface: BlockType.GRASS },
-  { id: "temperate_forest", label: "Temperate Forest", temperature: 0.48, humidity: 0.65, surface: BlockType.GRASS },
-  { id: "birch_forest", label: "Birch Forest", temperature: 0.42, humidity: 0.64, surface: BlockType.GRASS },
-  { id: "pine_forest", label: "Pine Forest", temperature: 0.28, humidity: 0.7, surface: BlockType.ACACIA_GRASS ?? BlockType.GRASS },
-  { id: "meadow", label: "Meadow", temperature: 0.45, humidity: 0.52, surface: BlockType.GRASS },
-  { id: "badlands", label: "Badlands", temperature: 0.7, humidity: 0.18, surface: BlockType.RED_SAND },
-  { id: "mesa", label: "Mesa", temperature: 0.76, humidity: 0.24, surface: BlockType.RED_SAND },
-  { id: "canyon", label: "Canyon", temperature: 0.8, humidity: 0.14, surface: BlockType.RED_SAND },
-  { id: "wetlands", label: "Wetlands", temperature: 0.3, humidity: 0.86, surface: BlockType.SWAMP_GRASS },
-  { id: "taiga_hills", label: "Taiga Hills", temperature: 0.12, humidity: 0.74, surface: BlockType.SNOW },
-  { id: "alpine", label: "Alpine", temperature: -0.18, humidity: 0.45, surface: BlockType.SNOW },
-  { id: "dark_forest", label: "Dark Forest", temperature: 0.36, humidity: 0.8, surface: BlockType.GRASS },
-  { id: "sunflower_plains", label: "Sunflower Plains", temperature: 0.52, humidity: 0.54, surface: BlockType.GRASS },
-  { id: "shrubland", label: "Shrubland", temperature: 0.58, humidity: 0.42, surface: BlockType.SAVANNA_GRASS },
-  { id: "wasteland", label: "Wasteland", temperature: 0.44, humidity: 0.18, surface: BlockType.GRAVEL },
-  { id: "jungle", label: "Jungle", temperature: 0.72, humidity: 0.9, surface: BlockType.GRASS },
-  { id: "mangrove", label: "Mangrove", temperature: 0.64, humidity: 0.96, surface: BlockType.SWAMP_GRASS },
-  { id: "stone_plain", label: "Stone Plains", temperature: 0.34, humidity: 0.4, surface: BlockType.COBBLESTONE },
-  { id: "basalt_deltas", label: "Basalt Deltas", temperature: 0.82, humidity: 0.1, surface: BlockType.BASALT },
-  { id: "crimson_forest", label: "Crimson Forest", temperature: 0.9, humidity: 0.25, surface: BlockType.RED_WOOL },
-  { id: "warped_forest", label: "Warped Forest", temperature: 0.6, humidity: 0.78, surface: BlockType.BLUE_WOOL },
-  { id: "cherry_grove", label: "Cherry Grove", temperature: 0.5, humidity: 0.72, surface: BlockType.CHERRY_GRASS },
-  { id: "bamboo_jungle", label: "Bamboo Jungle", temperature: 0.7, humidity: 0.86, surface: BlockType.GRASS },
-  { id: "cold_desert", label: "Cold Desert", temperature: 0.18, humidity: 0.2, surface: BlockType.SAND },
-  { id: "steppe", label: "Steppe", temperature: 0.4, humidity: 0.28, surface: BlockType.GRASS },
-  { id: "fen", label: "Fen", temperature: 0.24, humidity: 0.9, surface: BlockType.MUD },
-  { id: "glacier", label: "Glacier", temperature: -0.32, humidity: 0.6, surface: BlockType.SNOW },
-  { id: "heath", label: "Heath", temperature: 0.28, humidity: 0.44, surface: BlockType.GRASS },
-  { id: "riverbank", label: "Riverbank", temperature: 0.4, humidity: 0.56, surface: BlockType.GRASS },
-  { id: "volcanic", label: "Volcanic", temperature: 0.9, humidity: 0.12, surface: BlockType.BEDROCK },
-  { id: "reef", label: "Reef", temperature: 0.68, humidity: 0.92, surface: BlockType.SAND },
-  { id: "grove", label: "Grove", temperature: 0.46, humidity: 0.68, surface: BlockType.CHERRY_GRASS },
-  { id: "mesa_oak", label: "Mesa Oak", temperature: 0.6, humidity: 0.3, surface: BlockType.RED_SAND },
-  { id: "deep_ocean", label: "Deep Ocean", temperature: 0.09, humidity: 0.5, surface: BlockType.SAND },
-  { id: "frozen_ocean", label: "Frozen Ocean", temperature: -0.4, humidity: 0.52, surface: BlockType.SNOW },
-  { id: "lush_forest", label: "Lush Forest", temperature: 0.5, humidity: 0.88, surface: BlockType.GRASS },
-  { id: "redwood_forest", label: "Redwood Forest", temperature: 0.35, humidity: 0.72, surface: BlockType.GRASS },
-  { id: "autumn_forest", label: "Autumn Forest", temperature: 0.46, humidity: 0.58, surface: BlockType.GRASS },
+export { END_BIOMES, NETHER_BIOMES, OVERWORLD_BIOMES };
+
+export const BIOMES = Object.freeze([
+  ...OVERWORLD_BIOMES,
+  ...NETHER_BIOMES,
+  ...END_BIOMES,
 ]);
+
+export const BIOME_REGISTRY = BIOMES;
 
 function gaussianFalloff(distance) {
   return Math.max(0, 1 - distance * distance);
 }
 
-export function getBiomeWeightsFromClimate(temperature, humidity, registry = BIOME_REGISTRY) {
+export function getBiomeWeightsFromClimate(
+  temperature,
+  humidity,
+  registry = BIOMES,
+) {
   const entries = registry.map((biome) => {
     const tempDistance = Math.abs(temperature - biome.temperature);
     const humidityDistance = Math.abs(humidity - biome.humidity);
     const score = gaussianFalloff(tempDistance * 1.4 + humidityDistance * 1.7);
     return [biome.id, score];
   });
-  const total = entries.reduce((sum, [, score]) => sum + Math.max(0, score), 0) || 1;
-  return Object.fromEntries(entries.map(([id, score]) => [id, Math.max(0, score) / total]));
+  const total = entries.reduce((sum, [, score]) => sum + score, 0) || 1;
+  return Object.fromEntries(
+    entries.map(([id, score]) => [id, score / total]),
+  );
 }
 
-export function getBiomeSurfaceForWeights(weights, registry = BIOME_REGISTRY) {
-  let threshold = 0;
-  const sorted = [...registry].sort((a, b) => (weights[b.id] ?? 0) - (weights[a.id] ?? 0));
-  for (const biome of sorted) {
-    threshold += weights[biome.id] ?? 0;
-    if ((weights[biome.id] ?? 0) > 0) {
-      return biome.surface ?? BlockType.GRASS;
-    }
+export function getBiomeSurfaceForWeights(
+  weights,
+  registry = BIOMES,
+  sample,
+) {
+  const dominant = [...registry].sort(
+    (a, b) => (weights[b.id] ?? 0) - (weights[a.id] ?? 0),
+  )[0];
+  if (sample === undefined) {
+    return dominant?.surface ?? BlockType.GRASS;
   }
-  return sorted[0]?.surface ?? BlockType.GRASS;
+
+  let threshold = 0;
+  for (const biome of registry) {
+    const weight = weights[biome.id] ?? 0;
+    if (weight <= 0) continue;
+    threshold += weight;
+    if (sample <= threshold) return biome.surface ?? BlockType.GRASS;
+  }
+  return dominant?.surface ?? BlockType.GRASS;
 }
 
 export function getBiomeList() {
-  return BIOME_REGISTRY.map((biome) => biome.id);
+  return BIOMES.map((biome) => biome.id);
 }

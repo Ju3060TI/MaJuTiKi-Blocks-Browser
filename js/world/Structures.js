@@ -1,6 +1,7 @@
 import { BLOCKS, BlockType } from "./blocks.js";
 
 const VILLAGE_CHANCE = 0.05;
+const DUNGEON_CHANCE = 0.012;
 const HOUSE = { x: 6, z: 5, size: 5 };
 const FARM = { x: 1, z: 5, width: 4, depth: 5 };
 const PATH = { x: 8, startZ: 10, endZ: 15 };
@@ -150,5 +151,62 @@ export function generateVillage(
     writeBlock(x, baseY + 1, z, BLOCKS.TALL_GRASS.id);
   }
 
+  return true;
+}
+
+export function generateDungeon(
+  chunkX,
+  chunkZ,
+  blocksData,
+  heightMap,
+  context = {},
+) {
+  const chunkY = context.chunkY ?? 0;
+  const chunkSize = context.chunkSize ?? 16;
+  const seed = context.seed ?? 20240601;
+  const getBlockIndex = context.getBlockIndex ??
+    ((x, y, z) => x * chunkSize * chunkSize + y * chunkSize + z);
+
+  if (
+    chunkY !== 0 ||
+    hash2D(chunkX, chunkZ, seed ^ 0x31a7d915) >= DUNGEON_CHANCE
+  ) {
+    return false;
+  }
+
+  const room = { minX: 4, maxX: 11, minZ: 4, maxZ: 11, width: 8, depth: 8 };
+  let minSurfaceHeight = Infinity;
+  for (let x = room.minX; x <= room.maxX; x += 1) {
+    for (let z = room.minZ; z <= room.maxZ; z += 1) {
+      const cell = getHeightCell(heightMap, x, z, chunkSize);
+      if (!cell) return false;
+      minSurfaceHeight = Math.min(minSurfaceHeight, cell.height);
+    }
+  }
+
+  const floorY = Math.min(chunkSize - 5, minSurfaceHeight - 6);
+  const ceilingY = floorY + 4;
+  if (floorY < 5 || ceilingY >= chunkSize) return false;
+
+  const writeBlock = (x, y, z, type) => {
+    if (x < 0 || x >= chunkSize || z < 0 || z >= chunkSize) return;
+    blocksData[getBlockIndex(x, y, z)] = type;
+  };
+
+  for (let x = room.minX; x <= room.maxX; x += 1) {
+    for (let z = room.minZ; z <= room.maxZ; z += 1) {
+      writeBlock(x, floorY, z, BLOCKS.MOSSY_COBBLESTONE.id);
+      for (let y = floorY + 1; y < ceilingY; y += 1) {
+        const isWall =
+          x === room.minX || x === room.maxX ||
+          z === room.minZ || z === room.maxZ;
+        writeBlock(x, y, z, isWall ? BLOCKS.MOSSY_COBBLESTONE.id : BLOCKS.AIR.id);
+      }
+      writeBlock(x, ceilingY, z, BLOCKS.MOSSY_COBBLESTONE.id);
+    }
+  }
+
+  writeBlock(5, floorY + 1, 5, BLOCKS.CHEST.id);
+  writeBlock(8, floorY + 1, 8, BLOCKS.GLOWSTONE.id);
   return true;
 }

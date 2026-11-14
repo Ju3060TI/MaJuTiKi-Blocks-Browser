@@ -1,7 +1,12 @@
 import { createNoise2D, createNoise3D } from "simplex-noise";
 import { BLOCK_COUNT, BLOCKS, BLOCK_NAMES, BlockType } from "./blocks.js";
-import { BIOME_REGISTRY, getBiomeSurfaceForWeights, getBiomeWeightsFromClimate } from "./BiomeRegistry.js";
-import { generateDungeon, generateVillage } from "./Structures.js";
+import {
+  OVERWORLD_BIOMES,
+  getBiomeSurfaceForWeights,
+  getBiomeWeightsFromClimate,
+} from "./BiomeRegistry.js";
+import { generateDungeon } from "./Structures.js";
+import { generateVillage } from "./Structures.js";
 
 export { BLOCK_COUNT, BLOCKS, BLOCK_NAMES, BlockType };
 
@@ -178,47 +183,19 @@ export class WorldGenerator {
   }
 
   getBiomeWeightsAt(worldX, worldZ) {
-    const temperature = this.getTemperatureAt(worldX, worldZ);
-    const moisture = this.getMoistureAt(worldX, worldZ);
-    const scores = {
-      tundra: 1 - smoothstep(-0.42, -0.08, temperature),
-      desert: smoothstep(0.16, 0.55, temperature) * (1 - smoothstep(-0.02, 0.38, moisture)),
-      savanna: smoothstep(-0.08, 0.34, temperature) * (1 - smoothstep(0.12, 0.5, moisture)),
-      swamp:
-        smoothstep(0.16, 0.54, moisture) *
-        smoothstep(-0.42, -0.08, temperature) *
-        (1 - smoothstep(0.24, 0.55, temperature)),
-      cherry_grove:
-        smoothstep(-0.16, 0.2, temperature) *
-        (1 - smoothstep(0.35, 0.72, temperature)) *
-        smoothstep(-0.3, 0.24, moisture) *
-        (1 - smoothstep(0.68, 0.94, moisture)) *
-        0.9,
-      forest: 0.12 + smoothstep(-0.38, 0.12, temperature) *
-        (0.25 + smoothstep(0.08, 0.52, moisture) * 0.45),
-    };
-    const total = Object.values(scores).reduce((sum, score) => sum + score, 0);
-    return Object.fromEntries(
-      Object.entries(scores).map(([biome, score]) => [biome, score / total]),
+    const temperature = (this.getTemperatureAt(worldX, worldZ) + 1) / 2;
+    const humidity = (this.getMoistureAt(worldX, worldZ) + 1) / 2;
+    return getBiomeWeightsFromClimate(
+      temperature,
+      humidity,
+      OVERWORLD_BIOMES,
     );
   }
 
   getSurfaceBlockAt(worldX, worldZ) {
     const weights = this.getBiomeWeightsAt(worldX, worldZ);
     const patchNoise = (this.biomePatches(worldX * 0.12 + 19, worldZ * 0.12 - 43) + 1) / 2;
-    let threshold = 0;
-    for (const [biome, block] of [
-      ["tundra", BlockType.SNOW],
-      ["desert", BlockType.SAND],
-      ["savanna", BlockType.SAVANNA_GRASS],
-      ["cherry_grove", BlockType.CHERRY_GRASS],
-      ["swamp", BlockType.SWAMP_GRASS],
-      ["forest", BlockType.GRASS],
-    ]) {
-      threshold += weights[biome];
-      if (patchNoise <= threshold) return block;
-    }
-    return BlockType.GRASS;
+    return getBiomeSurfaceForWeights(weights, OVERWORLD_BIOMES, patchNoise);
   }
 
   generateChunk(chunkX = 0, chunkY = 0, chunkZ = 0) {
@@ -289,6 +266,12 @@ export class WorldGenerator {
     this.#placeGravelVeins(blocks, chunkX, chunkY, chunkZ);
     this.#placeTrees(blocks, chunkX, chunkY, chunkZ);
     this.#placeBiomePlants(blocks, chunkX, chunkY, chunkZ);
+    generateDungeon(chunkX, chunkZ, blocks, heightMap, {
+      chunkY,
+      chunkSize: CHUNK_SIZE,
+      seed: this.seed,
+      getBlockIndex: blockIndex,
+    });
     generateVillage(chunkX, chunkZ, blocks, heightMap, {
       chunkY,
       chunkSize: CHUNK_SIZE,
