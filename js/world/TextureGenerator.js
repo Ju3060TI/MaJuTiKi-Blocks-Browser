@@ -7,8 +7,10 @@ import {
   SRGBColorSpace,
   UnsignedByteType,
 } from "three";
-import { BLOCK_COUNT, BLOCKS } from "./blocks.js";
-import { TextureAtlas } from "./TextureAtlas.js";
+import {
+  BLOCK_COUNT,
+  BLOCKS,
+} from "./blocks.js";
 
 const TEXTURE_SIZE = 32;
 const DESIGN_SIZE = 16;
@@ -21,6 +23,7 @@ const TRANSPARENT_PATTERNS = new Set([
   "cherryPetals",
   "sapling",
 ]);
+
 function parseColor(value) {
   if (value.startsWith("#")) {
     const hex = value.slice(1);
@@ -212,6 +215,7 @@ function createTexture(draw) {
   texture.magFilter = NearestFilter;
   texture.minFilter = NearestMipmapNearestFilter;
   texture.generateMipmaps = true;
+  texture.flipY = true;
   texture.colorSpace = SRGBColorSpace;
   texture.needsUpdate = true;
   return texture;
@@ -634,33 +638,44 @@ export function createBlockTextures() {
   const stonePickaxe = createPickaxeTexture("#888888", "#704323");
   const ironPickaxe = createPickaxeTexture("#c2c7cc", "#704323");
   const crackStages = Array.from({ length: 10 }, (_, index) => createCrackTexture(index + 1));
-  const atlas = new TextureAtlas();
-  const atlasTexture = atlas.texture;
-  const waterTexture = atlasTexture.clone();
-  const lavaTexture = atlasTexture.clone();
-  // Fluid UVs already target atlas tiles; legacy texture offsets must not shift the full atlas.
+  
+  // REPARIERTER TEIL: Kein TextureAtlas mehr
+  const waterTexture = drawTexture("#1e5aa8", "rgba(255, 255, 255, 0.2)", "water");
+  const lavaTexture = drawTexture("#d14800", "rgba(255, 200, 0, 0.4)", "lava");
+  
   waterTexture.matrixAutoUpdate = false;
   lavaTexture.matrixAutoUpdate = false;
+  
   const textures = {
     woodenPickaxe,
     stonePickaxe,
     ironPickaxe,
     crackStages,
-    atlas: atlasTexture,
   };
 
   const blockTextures = Array(BLOCK_COUNT).fill(null);
   for (const block of Object.values(BLOCKS)) {
     if (block.id === BLOCKS.AIR.id) continue;
-    const textureNames = Array.isArray(block.textures)
-      ? block.textures
-      : Array(6).fill(block.textures);
-    const texture = block.id === BLOCKS.WATER.id
-      ? waterTexture
-      : block.id === BLOCKS.LAVA.id
-        ? lavaTexture
-        : atlasTexture;
-    blockTextures[block.id] = textureNames.map(() => texture);
+    
+    // Jeder Block bekommt seine eigene Textur (kein Atlas mehr)
+    let baseColor = "#888888";
+    let noiseColor = "rgba(0,0,0,0.2)";
+    let pattern = "stone";
+
+    if (block.name.includes("GRASS")) { baseColor = "#5eaa32"; noiseColor = "#438326"; pattern = "grassTop"; }
+    else if (block.name.includes("DIRT")) { baseColor = "#79553a"; noiseColor = "#4a3422"; pattern = "dirt"; }
+    else if (block.name.includes("WOOD") || block.name.includes("LOG")) { baseColor = "#6b4c2a"; noiseColor = "#3d2915"; pattern = "wood"; }
+    else if (block.name.includes("LEAVES")) { baseColor = "#2d5a1e"; noiseColor = "#1a3611"; pattern = "foliage"; }
+    else if (block.name.includes("SAND")) { baseColor = "#e3d5a1"; noiseColor = "#c2b280"; pattern = "dirt"; }
+    else if (block.name.includes("WATER")) { baseColor = "#1e5aa8"; noiseColor = "#4a90e2"; pattern = "water"; }
+    else if (block.name.includes("LAVA")) { baseColor = "#d14800"; noiseColor = "#ff8c00"; pattern = "lava"; }
+
+    let texture = drawTexture(baseColor, noiseColor, pattern);
+    
+    if (block.id === BLOCKS.WATER.id) texture = waterTexture;
+    if (block.id === BLOCKS.LAVA.id) texture = lavaTexture;
+
+    blockTextures[block.id] = Array(6).fill(texture);
   }
 
   return {
